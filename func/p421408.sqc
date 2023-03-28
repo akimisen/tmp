@@ -1,0 +1,58 @@
+/* --------------------------------------------------------------
+ * 程序名称: p421408.sqc
+ * 创建日期：2021-03-03
+ * 程序作者: 李向东
+ * 程序功能: HOTSBU处理推送的非交易设置流水应答请求
+ * 备注信息: SECRZRQ-9174
+ * 版本信息: <ver>
+ * 专题信息：【20210303】SECREQ-13212 HOTSBU支持推送非交易设置信息
+ * -------------------------------------------------------------- */
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F421408(LPVOID handle, int iRequest, ST_PACK *reqPack, int *piRetCode, char *omsg)
+{
+    /*变量声明*/
+    EXEC SQL BEGIN DECLARE SECTION;
+        char mi_sglobal_serial[13] = {0};   // 全局流水号
+        char mi_scust_no[11] = {0};         // 客户号
+        char mi_stable_name[61] = {0};      // 表名
+        char mi_sstatus[2] = {0};           // 状态
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;       /* 初始化为无错 */
+    char sMsg[256] = {0};
+
+    ksstrncpy(mi_sglobal_serial, reqPack->sserial1, sizeof(mi_sglobal_serial));
+    trim(mi_sglobal_serial);
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    trim(mi_scust_no);
+    ksstrncpy(mi_stable_name, reqPack->semail, sizeof(mi_stable_name));
+    trim(mi_stable_name);
+    ksstrncpy(mi_sstatus, reqPack->sstatus0, sizeof(mi_sstatus));
+    trim(mi_sstatus);
+
+    // 2-处理成功;9-处理失败
+    if (mi_sstatus[0] != '2' && mi_sstatus[0] != '9')
+    {
+        snprintf(sMsg, sizeof(sMsg), "输入参数错误，应答状态为[%s]-未知状态", mi_sstatus);
+        ERR_DEAL(sMsg, 9493);
+        return bRet;
+    }
+
+    // 更新HOTS_NOTRADE_TABLE_CHG表中的状态
+    EXEC SQL
+        UPDATE KS.HOTS_NOTRADE_TABLE_CHG
+        SET STATUS = :mi_sstatus
+        WHERE GLOBAL_SERIAL = :mi_sglobal_serial;
+    if (SQLCODE)
+    {
+        snprintf(sMsg, sizeof(sMsg), "更新HOTS_NOTRADE_TABLE_CHG表出错,全局流水号[%s],客户号[%s],表名[%s],状态[%s]", 
+            mi_sglobal_serial, mi_scust_no, mi_stable_name, mi_sstatus);
+        ERR_DEAL(sMsg, 9890);
+        return bRet;
+    }
+
+    return TRUE;
+}

@@ -1,0 +1,61 @@
+/* -------------------------------------------------------------------
+ * 程序名称: p421401.sqc
+ * 创建日期: 2020-11-05
+ * 程序作者: 李向东
+ * 版本信息: 3.21.5.2-p4
+ * 程序功能: 协议委托应答处理
+ * -------------------------------------------------------------------*/
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F421401(LPVOID handle, int iRequest, ST_PACK *reqPack, int *piRetCode, char *omsg)
+{
+    /*变量声明*/
+    EXEC SQL BEGIN DECLARE SECTION;
+        char mi_sglobal_serial[13] = {0};   // 全局流水号
+        char mi_scust_no[11] = {0};         // 客户号
+        char mi_scontract_no[11] = {0};     // 委托序号
+        sqlint32 mi_ientrust_date = 0;      // 委托交易日期
+        char mi_sorder_business_code[7] = {0};  // 订单业务代码
+        char mi_sstatus[2] = {0};           // 状态
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;       /* 初始化为无错 */
+    char sMsg[256] = {0};
+
+    ksstrncpy(mi_sglobal_serial, reqPack->sserial1, sizeof(mi_sglobal_serial));
+    trim(mi_sglobal_serial);
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    trim(mi_scust_no);
+    ksstrncpy(mi_scontract_no, reqPack->sorder0, sizeof(mi_scontract_no));
+    trim(mi_scontract_no);
+    mi_ientrust_date = reqPack->lvol0;
+    ksstrncpy(mi_sorder_business_code, reqPack->sbank_code, sizeof(mi_sorder_business_code));
+    trim(mi_sorder_business_code);
+    ksstrncpy(mi_sstatus, reqPack->sstatus0, sizeof(mi_sstatus));
+    trim(mi_sstatus);
+
+    // 2-处理成功;9-处理失败
+    if (mi_sstatus[0] != '2' && mi_sstatus[0] != '9')
+    {
+        snprintf(sMsg, sizeof(sMsg), "输入参数错误，应答状态为[%s]-未知状态", mi_sstatus);
+        ERR_DEAL(sMsg, 9493);
+        return bRet;
+    }
+
+    // 更新HOTS_XY_ENTRUST表中的状态
+    EXEC SQL
+        UPDATE KS.HOTS_XY_ENTRUST
+        SET STATUS = :mi_sstatus
+        WHERE GLOBAL_SERIAL = :mi_sglobal_serial;
+    if (SQLCODE)
+    {
+        snprintf(sMsg, sizeof(sMsg), "更新HOTS_XY_ENTRUST表出错, 全局流水号[%s],客户号[%s],委托序号[%s],委托交易日期[%d],订单业务代码[%s],状态[%s]", 
+            mi_sglobal_serial, mi_scust_no, mi_scontract_no, mi_ientrust_date, mi_sorder_business_code, mi_sstatus);
+        ERR_DEAL(sMsg, 9759);
+        return bRet;
+    }
+
+    return TRUE;
+}

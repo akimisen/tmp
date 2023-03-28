@@ -1,0 +1,173 @@
+/* ----------------------------------------------------------
+ * 程序名称：p888003.sqc
+ * 创建日期：2020-09-29
+ * 程序作者：周伟
+ * 版本信息：3.21.5.2-p2
+ * 程序功能：HOTS资券冻结解冻流水查询
+ * ----------------------------------------------------------*/
+
+
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888003(LPVOID handle,int iRequest,ST_PACK *reqPack,int *piRetCode,char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char   mi_sbranch_code[4]   = { 0 };
+        char   mi_soccur_date[9]    = { 0 };
+        char   mi_sserial_no[13]    = { 0 };
+        char   mi_scust_no[11]      = { 0 };
+        char   mi_sbusiness_code[5] = { 0 };
+        char   mi_smarket_code[2]   = { 0 };
+        char   mi_ssec_code[9]      = { 0 };
+        char   mi_sstatus[2]        = { 0 };
+        char   mi_ssystem_no[5]     = { 0 };
+
+        char   mo_sglobal_serial[13]  = { 0 };
+        sqlint32 mo_iclr_ctrl         = 0;
+        char   mo_sbranch_code[4]     = { 0 };
+        char   mo_soccur_date[9]      = { 0 };
+        char   mo_soccur_time[9]      = { 0 };
+        char   mo_sserial_no[13]      = { 0 };
+        char   mo_scust_no[11]        = { 0 };
+        char   mo_scurrency_type[3]   = { 0 };
+        char   mo_sfund_acc_no[3]     = { 0 };
+        char   mo_sholder_acc_no[16]  = { 0 };
+        char   mo_sbusiness_code[5]   = { 0 };
+        char   mo_smarket_code[2]     = { 0 };
+        char   mo_ssec_code[9]        = { 0 };
+        double mo_dchange_bal         = 0.0;
+        double mo_dchange_vol         = 0.0;
+        char   mo_schange_type[5]     = { 0 };
+        char   mo_snote[81]           = { 0 };
+        char   mo_sback_code[7]       = { 0 };
+        char   mo_sentrust_method[2]  = { 0 };
+        double mo_ddone_price         = 0.0;
+        char   mo_sjoin_date[9]       = { 0 };
+        char   mo_sjoin_serial_no[13] = { 0 };
+        char   mo_scheck_date[9]      = { 0 };
+        char   mo_sr_date[9]          = { 0 };
+        char   mo_scontract_no[13]    = { 0 };
+        char   mo_sstatus[2]          = { 0 };
+        char   mo_ssystem_no[5]       = { 0 };
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;
+    ST_PACK rpack = { 0 };
+    SetCol(handle, F_SSERIAL2, F_LVOL1, F_SBRANCH_CODE0, F_SDATE0, F_STIME0,
+           F_SSERIAL0, F_SCUST_NO, F_SCURRENCY_TYPE, F_SHOLDER_TYPE, F_SHOLDER_AC_NO,
+           F_SPOST_CODE, F_SMARKET_CODE, F_SSTOCK_CODE, F_DAMT0, F_DAMT1,
+           F_SPOST_CODE2, F_SNOTE, F_SBANK_CODE, F_SMAIN_FLAG, F_DAMT2, F_SDATE1,
+           F_SSERIAL1, F_SDATE2, F_SDATE3, F_SSERIAL3, F_SSTATUS0, F_SORDER0, 0);
+
+    ksstrncpy(mi_sbranch_code, reqPack->sbranch_code0, sizeof(mi_sbranch_code));
+    ksstrncpy(mi_soccur_date, reqPack->sdate0, sizeof(mi_soccur_date));
+    ksstrncpy(mi_sserial_no, reqPack->sserial0, sizeof(mi_sserial_no));
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    ksstrncpy(mi_sbusiness_code, reqPack->spost_code, sizeof(mi_sbusiness_code));
+    ksstrncpy(mi_smarket_code, reqPack->smarket_code, sizeof(mi_smarket_code));
+    ksstrncpy(mi_ssec_code, reqPack->sstock_code, sizeof(mi_ssec_code));
+    ksstrncpy(mi_sstatus, reqPack->sstatus0, sizeof(mi_sstatus));
+    ksstrncpy(mi_ssystem_no, reqPack->sorder0, sizeof(mi_ssystem_no));
+    trim(mi_sbranch_code);
+    trim(mi_soccur_date);
+    trim(mi_sserial_no);
+    trim(mi_scust_no);
+    trim(mi_sbusiness_code);
+    trim(mi_smarket_code);
+    trim(mi_ssec_code);
+    trim(mi_sstatus);
+    trim(mi_ssystem_no);
+
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT
+            GLOBAL_SERIAL,CLR_CTRL,BRANCH_CODE,OCCUR_DATE,OCCUR_TIME,SERIAL_NO,
+            CUST_NO,CURRENCY_TYPE,FUND_ACC_NO,HOLDER_ACC_NO,BUSINESS_CODE,
+            MARKET_CODE,SEC_CODE,CHANGE_BAL,CHANGE_VOL,CHANGE_TYPE,NOTE,
+            BANK_CODE,ENTRUST_METHOD,DONE_PRICE,JOIN_DATE,JOIN_SERIAL_NO,
+            CHECK_DATE,R_DATE,CONTRACT_NO,STATUS,SYSTEM_NO
+        FROM KS.HOTS_FUND_STK_TMP_CHG
+        WHERE (:mi_sbranch_code = '' OR BRANCH_CODE = :mi_sbranch_code)
+              AND (:mi_soccur_date = '' OR OCCUR_DATE = :mi_soccur_date)
+              AND (:mi_sserial_no = '' OR SERIAL_NO = :mi_sserial_no)
+              AND (:mi_scust_no = '' OR CUST_NO = :mi_scust_no)
+              AND (:mi_sbusiness_code = '' OR BUSINESS_CODE = :mi_sbusiness_code)
+              AND (:mi_smarket_code = '' OR MARKET_CODE = :mi_smarket_code)
+              AND (:mi_ssec_code = '' OR SEC_CODE = :mi_ssec_code)
+              AND (:mi_sstatus = '' OR STATUS = :mi_sstatus)
+              AND (:mi_ssystem_no = '' OR SYSTEM_NO = :mi_ssystem_no)
+        ORDER BY GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("打开游标错误",2372);
+        goto L_RETURN;
+    }
+
+    EXEC SQL FETCH C1 INTO
+            :mo_sglobal_serial,:mo_iclr_ctrl,:mo_sbranch_code,:mo_soccur_date,:mo_soccur_time,:mo_sserial_no,
+            :mo_scust_no,:mo_scurrency_type,:mo_sfund_acc_no,:mo_sholder_acc_no,:mo_sbusiness_code,
+            :mo_smarket_code,:mo_ssec_code,:mo_dchange_bal,:mo_dchange_vol,:mo_schange_type,:mo_snote,
+            :mo_sback_code,:mo_sentrust_method,:mo_ddone_price,:mo_sjoin_date,:mo_sjoin_serial_no,
+            :mo_scheck_date,:mo_sr_date,:mo_scontract_no,:mo_sstatus,:mo_ssystem_no;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("从游标中获取HOTS资券冻结解冻流水错误",9712);
+        goto L_RETURN;
+    }
+    while (SQLCODE == 0)
+    {
+        // 将流水数据打包
+        ksstrncpy(rpack.sserial2, mo_sglobal_serial, sizeof(rpack.sserial2));
+        rpack.lvol1 = mo_iclr_ctrl;
+        ksstrncpy(rpack.sbranch_code0, mo_sbranch_code, sizeof(rpack.sbranch_code0));
+        ksstrncpy(rpack.sdate0, mo_soccur_date, sizeof(rpack.sdate0));
+        ksstrncpy(rpack.stime0, mo_soccur_time, sizeof(rpack.stime0));
+        ksstrncpy(rpack.sserial0, mo_sserial_no, sizeof(rpack.sserial0));
+        ksstrncpy(rpack.scust_no, mo_scust_no, sizeof(rpack.scust_no));
+        ksstrncpy(rpack.scurrency_type, mo_scurrency_type, sizeof(rpack.scurrency_type));
+        ksstrncpy(rpack.sholder_type, mo_sfund_acc_no, sizeof(rpack.sholder_type));
+        ksstrncpy(rpack.sholder_ac_no, mo_sholder_acc_no, sizeof(rpack.sholder_ac_no));
+        ksstrncpy(rpack.spost_code, mo_sbusiness_code, sizeof(rpack.spost_code));
+        ksstrncpy(rpack.smarket_code, mo_smarket_code, sizeof(rpack.smarket_code));
+        ksstrncpy(rpack.sstock_code, mo_ssec_code, sizeof(rpack.sstock_code));
+        rpack.damt0 = mo_dchange_bal;
+        rpack.damt1 = mo_dchange_vol;
+        ksstrncpy(rpack.spost_code2, mo_schange_type, sizeof(rpack.spost_code2));
+        ksstrncpy(rpack.snote, mo_snote, sizeof(rpack.snote));
+        ksstrncpy(rpack.sbank_code, mo_sback_code, sizeof(rpack.sbank_code));
+        ksstrncpy(rpack.smain_flag, mo_sentrust_method, sizeof(rpack.smain_flag));
+        rpack.damt2 = mo_ddone_price;
+        ksstrncpy(rpack.sdate1, mo_sjoin_date, sizeof(rpack.sdate1));
+        ksstrncpy(rpack.sserial1, mo_sjoin_serial_no, sizeof(rpack.sserial1));
+        ksstrncpy(rpack.sdate2, mo_scheck_date, sizeof(rpack.sdate2));
+        ksstrncpy(rpack.sdate3, mo_sr_date, sizeof(rpack.sdate3));
+        ksstrncpy(rpack.sserial3, mo_scontract_no, sizeof(rpack.sserial3));
+        ksstrncpy(rpack.sstatus0, mo_sstatus, sizeof(rpack.sstatus0));
+        ksstrncpy(rpack.sorder0, mo_ssystem_no, sizeof(rpack.sorder0));
+
+        bRet = PutRow(handle, &rpack, piRetCode, omsg);
+        if (bRet == FALSE)
+        {
+            ERR_DEAL("PUTROW失败",4405);
+            break;
+        }
+
+        EXEC SQL FETCH C1 INTO
+            :mo_sglobal_serial,:mo_iclr_ctrl,:mo_sbranch_code,:mo_soccur_date,:mo_soccur_time,:mo_sserial_no,
+            :mo_scust_no,:mo_scurrency_type,:mo_sfund_acc_no,:mo_sholder_acc_no,:mo_sbusiness_code,
+            :mo_smarket_code,:mo_ssec_code,:mo_dchange_bal,:mo_dchange_vol,:mo_schange_type,:mo_snote,
+            :mo_sback_code,:mo_sentrust_method,:mo_ddone_price,:mo_sjoin_date,:mo_sjoin_serial_no,
+            :mo_scheck_date,:mo_sr_date,:mo_scontract_no,:mo_sstatus,:mo_ssystem_no;
+        if(SQLCODE && SQLCODE != NOTFOUND)
+        {
+            ERR_DEAL("从游标中获取HOTS资券冻结解冻流水错误", 9712);
+            goto L_RETURN;
+        }
+    }
+L_RETURN:
+    EXEC SQL CLOSE C1;
+    return bRet;
+}

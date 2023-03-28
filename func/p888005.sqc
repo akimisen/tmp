@@ -1,0 +1,342 @@
+/* ----------------------------------------------------------
+ * 程序名称：p888005.sqc
+ * 创建日期：2020-11-07
+ * 程序作者：周伟
+ * 版本信息：3.21.5.2-p4
+ * 程序功能：单次扫描HOTS_XY_REAL_DONE表信息并推送
+ * ----------------------------------------------------------
+ * 修改日期: 2021-03-04
+ * 修改人员: 李向东
+ * 修改描述: pushbu推送错误，尝试重推逻辑修改
+ *          推送增加标识 lvol12=2;标识推送来源为融资融券
+ * 备注信息: SECRZRQ-9174
+ * 版本信息: 3.21.6.3
+ * 专题信息：【20210303】SECREQ-13212 HOTSBU支持推送非交易设置信息
+ * --------------------------------------------------------------
+ * 修改日期: 2021-09-17
+ * 修改人员: 李向东
+ * 修改描述: 如果是上海的债券，则进行张手转换（表数据为手，推送给HOTS为张）
+ * 备注信息: SECRZRQ-10469
+ * 版本信息: 3.21.6.3
+ * 专题信息: SECREQ-14574【上交所】【融资融券】上交所信用账户新增交易类业务
+ * --------------------------------------------------------------
+ * 修改日期: 2021-12-24
+ * 修改人员: 李向东
+ * 修改描述: PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包
+ * 备注信息: SECRZRQ-10823
+ * 版本信息: 3.22.1.0
+ * 专题信息: SECRZRQ-10823【海通】【两融】解决HOTSBU压测时500笔委托时丢包问题
+ * --------------------------------------------------------------*/
+
+#include "inc.h"
+#include "hotsparam.h"
+#include "mypub.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888005(LPVOID handle, int iRequest, ST_PACK *reqPack, int *piRetCode, char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char     mt_sdate[9]                = { 0 };
+        sqlint32 mt_idate                   = 0;
+
+        char     mt_sglobal_serial[13]      = { 0 };
+        char     mt_scontract_no[11]        = { 0 };
+        char     mt_scust_no[11]            = { 0 };
+        char     mt_smarket_code[2]         = { 0 };
+        char     mt_sholder_acc_no[16]      = { 0 };
+        char     mt_ssec_acc[16]            = { 0 };
+        char     mt_sdone_no[21]            = { 0 };
+        char     mt_ssec_code[9]            = { 0 };
+        char     mt_ssec_short_name[41]     = { 0 };
+        double   mt_ddone_amt               = 0.0;
+        double   mt_ddone_vol               = 0.0;
+        sqlint32 mt_idone_date              = 0;
+        sqlint32 mt_idone_time              = 0;
+        double   mt_dfrozen_amt             = 0.0;
+        char     mt_srpt_contract_no[11]    = { 0 };
+        char     mt_swth_rpt_cntrct_no[11]  = { 0 };
+        char     mt_sorder_business_code[5] = { 0 };
+        char     mt_sdone_stat[2]           = { 0 };
+        char     mt_sdone_seat[9]           = { 0 };
+        double   mt_dsingle_fee             = 0.0;
+        double   mt_ddone_price             = 0.0;
+        double   mt_dsettle_price           = 0.0;
+        double   mt_dnet_amt                = 0.0;
+        char     mt_strade_sign[11]         = { 0 };
+        char     mt_sset_no[9]              = { 0 };
+        char     mt_sset_done_no[11]        = { 0 };
+        char     mt_srdone_datetime[27]     = { 0 };
+        char     mt_sdone_id[11]            = { 0 };
+        char     mt_ssystem_no[5]           = { 0 };
+        char     mt_sstatus[2]              = { 0 };
+        char     mt_sbs_flag[2]             = { 0 };
+        char     mt_sbs_name[3]             = { 0 };
+        char     mt_ssec_type[3]            = { 0 };
+
+        char    mt_ssource_no[11]           = { 0 };
+        char    mt_sfunction_no[11]         = { 0 };
+        char    mt_sdest_no[6]              = { 0 };
+    EXEC SQL END DECLARE SECTION;
+
+    int icount     = 0; // count for pushed
+    int irecount   = 0; // count for repushed
+    BOOL bRet      = TRUE;
+    BOOL bSuccess  = TRUE;
+    ST_CPACK rpack = { 0 };
+    int isource_no = 0;
+    int ifunction_no = 0;
+    int idest_no   = 0;
+
+    // 获取当前时间
+    GetMachineDateTime(mt_sdate, NULL);
+    mt_idate = atoi(mt_sdate);
+
+    rpack.head.RequestType = 1421402;
+    rpack.head.firstflag = 1;
+    rpack.head.nextflag = 0;
+    rpack.head.recCount = 1;
+    SetColEx(NULL, &rpack, F_SSERIAL2, F_SORDER0, F_SCUST_NO, F_SMARKET_CODE, F_SHOLDER_AC_NO,
+             F_SHOLDER_AC_NO2, F_SNAME2, F_SSTOCK_CODE, F_SBANK_ACC2, F_DAMT0, F_DAMT1, F_LVOL0,
+             F_LVOL1, F_DAMT2, F_SORDER1, F_SORDER2, F_SPOST_CODE, F_SSTATUS1, F_SEMP_NO2,
+             F_DAMT3, F_DAMT4, F_DAMT5, F_DAMT6, F_SCUST_NO2, F_SSTOCK_CODE2, F_SSERIAL1,
+             F_SPHONE2, F_SSERIAL3, F_SSERIAL0, F_SSTATUS0, F_SMAIN_FLAG, F_SHOLDER_TYPE2, 0);
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT  A.GLOBAL_SERIAL,A.CONTRACT_NO,A.CUST_NO,A.MARKET_CODE,A.HOLDER_ACC_NO,A.SEC_ACC,A.DONE_NO,
+                A.SEC_CODE,A.SEC_SHORT_NAME,A.DONE_AMT,A.DONE_VOL,A.DONE_DATE,A.DONE_TIME,A.FROZEN_AMT,
+                A.RPT_CONTRACT_NO,A.WTH_RPT_CNTRCT_NO,A.ORDER_BUSINESS_CODE,A.DONE_STAT,A.DONE_SEAT,
+                A.SINGLE_FEE,A.DONE_PRICE,A.SETTLE_PRICE,A.NET_AMT,A.TRADE_SIGN,A.SET_NO,A.SET_DONE_NO,
+                A.RDONE_DATETIME,A.DONE_ID,A.SYSTEM_NO,A.STATUS,VALUE(B.BS_FLAG,''),VALUE(B.BS_NAME,'')
+            FROM KS.HOTS_XY_REAL_DONE A LEFT JOIN SOC.ORD_BUSINESS_ATTR B
+            ON A.MARKET_CODE = B.MARKET_CODE AND A.ORDER_BUSINESS_CODE = B.ORDER_BUSINESS_CODE
+            WHERE A.DONE_DATE = :mt_idate
+                  AND A.STATUS = '0'
+        ORDER BY A.GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if (SQLCODE != 0)
+    {
+        sprintf(omsg, "打开游标错误");
+        ERR_DEAL(omsg, 2372);
+        goto L_RETU;
+    }
+
+    while (icount < g_pushbu_param.inumPerPush)
+    {
+        EXEC SQL FETCH C1 INTO
+            :mt_sglobal_serial,:mt_scontract_no,:mt_scust_no,:mt_smarket_code,:mt_sholder_acc_no,
+            :mt_ssec_acc,:mt_sdone_no,:mt_ssec_code,:mt_ssec_short_name,:mt_ddone_amt,:mt_ddone_vol,
+            :mt_idone_date,:mt_idone_time,:mt_dfrozen_amt,:mt_srpt_contract_no,:mt_swth_rpt_cntrct_no,
+            :mt_sorder_business_code,:mt_sdone_stat,:mt_sdone_seat,:mt_dsingle_fee,:mt_ddone_price,
+            :mt_dsettle_price,:mt_dnet_amt,:mt_strade_sign,:mt_sset_no,:mt_sset_done_no,
+            :mt_srdone_datetime,:mt_sdone_id,:mt_ssystem_no,:mt_sstatus,:mt_sbs_flag,:mt_sbs_name;
+        if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+        {
+            sprintf(omsg, "从游标中获取HOTS_XY_REAL_DONE表数据错误");
+            ERR_DEAL(omsg, 9760); // 需申请
+            goto L_RETU;
+        }
+        else if (SQLCODE == NOTFOUND)
+        {
+            break;
+        }
+
+        // ''+系统分组匹配
+        EXEC SQL
+            SELECT SOURCE_NO,DEST_NO,FUNCTION_NO
+                INTO :mt_ssource_no,:mt_sdest_no,:mt_sfunction_no
+            FROM KS.HOTS_SERVER_CFG
+            WHERE BUSINESS_CODE=''
+                  AND SYSTEM_NO=:mt_ssystem_no
+            WITH UR;
+        if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+        {
+            sprintf(omsg, "查HOTS路由表失败");
+            ERR_DEAL(omsg, 9711);
+            goto L_RETU;
+        }
+        // ''+''匹配
+        else if (SQLCODE == NOTFOUND)
+        {
+            EXEC SQL
+            SELECT SOURCE_NO,DEST_NO,FUNCTION_NO
+                INTO :mt_ssource_no,:mt_sdest_no,:mt_sfunction_no
+            FROM KS.HOTS_SERVER_CFG
+            WHERE BUSINESS_CODE=''
+                  AND SYSTEM_NO=''
+            WITH UR;
+            if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+            {
+                sprintf(omsg, "查HOTS路由表失败");
+                ERR_DEAL(omsg, 9711);
+                goto L_RETU;
+            }
+            else if(SQLCODE == NOTFOUND)
+            {
+                WriteLog(1, "[%s]成交未配置路由信息, 且无默认配置, 无法推送, 更新该笔成交[%s]+[%s]+[%s]+[%s]+[%s]状态为存疑",
+                         mt_ssystem_no, mt_scust_no, mt_smarket_code, mt_scontract_no, mt_sdone_no, mt_idone_date);
+                EXEC SQL
+                    UPDATE KS.HOTS_XY_REAL_DONE
+                    SET STATUS = '3'
+                    WHERE DONE_DATE = :mt_idone_date
+                          AND MARKET_CODE = :mt_smarket_code
+                          AND CUST_NO = :mt_scust_no
+                          AND CONTRACT_NO = :mt_scontract_no
+                          AND DONE_NO = :mt_sdone_no
+                          AND GLOBAL_SERIAL = :mt_sglobal_serial;
+                if (SQLCODE != 0)
+                {
+                    sprintf(omsg, "更新HOTS_XY_REAL_DONE表状态错误");
+                    ERR_DEAL(omsg, 9761); // 需申请
+                    goto L_RETU;
+                }
+                continue;
+            }
+        }
+        /* 如果是上海债券，成交数量由手转换为张推送给HOTS add by lxd 2021-09-17 START*/
+        if (mt_smarket_code[0] == '1')
+        {
+            EXEC SQL 
+                SELECT SEC_TYPE INTO :mt_ssec_type
+                FROM KS.SEC_CODE
+                WHERE MARKET_CODE = :mt_smarket_code
+                    AND SEC_CODE = :mt_ssec_code
+                WITH UR;
+            if (SQLCODE)
+            {
+                sprintf(omsg, "查询市场%s证券代码%s基本信息失败",mt_smarket_code,mt_ssec_code);
+                ERR_DEAL(omsg, 4202);
+                goto L_RETU;
+            }
+            if (FALSE != InStr("00,10,11,HH",mt_ssec_type))
+            {
+                mt_ddone_vol *= 10;
+            }
+        }
+        /* 如果是上海债券，成交数量由手转换为张推送给HOTS add by lxd 2021-09-17 END*/
+        // 将流水数据打包
+        rpack.pack.lvol12 = 2; //交易系统标识 1-集中交易；2-融资融券
+        ksstrncpy(rpack.pack.sserial2, mt_sglobal_serial, sizeof(rpack.pack.sserial2));
+        ksstrncpy(rpack.pack.sorder0, mt_scontract_no, sizeof(rpack.pack.sorder0));
+        ksstrncpy(rpack.pack.scust_no, mt_scust_no, sizeof(rpack.pack.scust_no));
+        ksstrncpy(rpack.pack.smarket_code, mt_smarket_code, sizeof(rpack.pack.smarket_code));
+        ksstrncpy(rpack.pack.sholder_ac_no, mt_sholder_acc_no, sizeof(rpack.pack.sholder_ac_no));
+        ksstrncpy(rpack.pack.sholder_ac_no2, mt_ssec_acc, sizeof(rpack.pack.sholder_ac_no2));
+        ksstrncpy(rpack.pack.sname2, mt_sdone_no, sizeof(rpack.pack.sname2));
+        ksstrncpy(rpack.pack.sstock_code, mt_ssec_code, sizeof(rpack.pack.sstock_code));
+        ksstrncpy(rpack.pack.sbank_acc2, mt_ssec_short_name, sizeof(rpack.pack.sbank_acc2));
+        rpack.pack.damt0 = mt_ddone_amt;
+        rpack.pack.damt1 = mt_ddone_vol;
+        rpack.pack.lvol0 = mt_idone_date;
+        rpack.pack.lvol1 = mt_idone_time;
+        rpack.pack.damt2 = mt_dfrozen_amt;
+        ksstrncpy(rpack.pack.sorder1, mt_srpt_contract_no, sizeof(rpack.pack.sorder1));
+        ksstrncpy(rpack.pack.sorder2, mt_swth_rpt_cntrct_no, sizeof(rpack.pack.sorder2));
+        ksstrncpy(rpack.pack.spost_code, mt_sorder_business_code, sizeof(rpack.pack.spost_code));
+        ksstrncpy(rpack.pack.sstatus1, mt_sdone_stat, sizeof(rpack.pack.sstatus1));
+        ksstrncpy(rpack.pack.semp_no2, mt_sdone_seat, sizeof(rpack.pack.semp_no2));
+        rpack.pack.damt3 = mt_dsingle_fee;
+        rpack.pack.damt4 = mt_ddone_price;
+        rpack.pack.damt5 = mt_dsettle_price;
+        rpack.pack.damt6 = mt_dnet_amt;
+        ksstrncpy(rpack.pack.scust_no2, mt_strade_sign, sizeof(rpack.pack.scust_no2));
+        ksstrncpy(rpack.pack.sstock_code2, mt_sset_no, sizeof(rpack.pack.sstock_code2));
+        ksstrncpy(rpack.pack.sserial1, mt_sset_done_no, sizeof(rpack.pack.sserial1));
+        ksstrncpy(rpack.pack.sphone2, mt_srdone_datetime, sizeof(rpack.pack.sphone2));
+        ksstrncpy(rpack.pack.sserial3, mt_sdone_id, sizeof(rpack.pack.sserial3));
+        ksstrncpy(rpack.pack.sserial0, mt_ssystem_no, sizeof(rpack.pack.sserial0));
+        ksstrncpy(rpack.pack.sstatus0, mt_sstatus, sizeof(rpack.pack.sstatus0));
+        ksstrncpy(rpack.pack.smain_flag, mt_sbs_flag, sizeof(rpack.pack.smain_flag));
+        ksstrncpy(rpack.pack.sholder_type2, mt_sbs_name, sizeof(rpack.pack.sholder_type2));
+
+        // 推送该条内容
+        isource_no = atoi(mt_ssource_no);
+        idest_no = atoi(mt_sdest_no);
+        ifunction_no = atoi(mt_sfunction_no);
+        if (PushData(isource_no, idest_no, ifunction_no, 0, &rpack, PM_ACK, 0, NULL) < 0) /* PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包 modify by lxd 2021-12-24 */
+        {
+            if (bSuccess != FALSE)
+            {
+                bSuccess = FALSE;
+                irecount = 1;
+            }
+            while(irecount++ < g_pushbu_param.itryTimes)
+            {
+                if (PushData(isource_no, idest_no, ifunction_no, 0, &rpack, PM_ACK, 0, NULL) >= 0) /* PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包 modify by lxd 2021-12-24 */
+                {
+                    bSuccess = TRUE;
+                    EXEC SQL
+                        UPDATE KS.HOTS_XY_REAL_DONE
+                        SET STATUS = '1'
+                        WHERE DONE_DATE = :mt_idone_date
+                            AND MARKET_CODE = :mt_smarket_code
+                            AND CUST_NO = :mt_scust_no
+                            AND CONTRACT_NO = :mt_scontract_no
+                            AND DONE_NO = :mt_sdone_no
+                            AND GLOBAL_SERIAL = :mt_sglobal_serial;
+                    if (SQLCODE != 0)
+                    {
+                        sprintf(omsg, "更新HOTS_XY_REAL_DONE表状态错误");
+                        ERR_DEAL(omsg, 9761); // 需申请
+                        goto L_RETU;
+                    }
+                    ++icount;
+                    break;
+                }
+            }
+            if (bSuccess == FALSE)
+            {
+                // 复位
+                bSuccess = TRUE;
+                EXEC SQL
+                    UPDATE KS.HOTS_XY_REAL_DONE
+                    SET STATUS = '3'
+                    WHERE DONE_DATE = :mt_idone_date
+                            AND MARKET_CODE = :mt_smarket_code
+                            AND CUST_NO = :mt_scust_no
+                            AND CONTRACT_NO = :mt_scontract_no
+                            AND DONE_NO = :mt_sdone_no
+                            AND GLOBAL_SERIAL = :mt_sglobal_serial;
+                if (SQLCODE != 0)
+                {
+                    sprintf(omsg, "更新HOTS_XY_REAL_DONE表状态错误");
+                    ERR_DEAL(omsg, 9761); // 需申请
+                    goto L_RETU;
+                }
+            }
+        }
+        else
+        {
+            EXEC SQL
+                UPDATE KS.HOTS_XY_REAL_DONE
+                SET STATUS = '1'
+                WHERE DONE_DATE = :mt_idone_date
+                      AND MARKET_CODE = :mt_smarket_code
+                      AND CUST_NO = :mt_scust_no
+                      AND CONTRACT_NO = :mt_scontract_no
+                      AND DONE_NO = :mt_sdone_no
+                      AND GLOBAL_SERIAL = :mt_sglobal_serial;
+            if (SQLCODE != 0)
+            {
+                sprintf(omsg, "更新HOTS_XY_REAL_DONE表状态错误");
+                ERR_DEAL(omsg, 9761); // 需申请
+                goto L_RETU;
+            }
+
+            ++icount;
+        }
+    }
+
+L_RETU:
+    EXEC SQL CLOSE C1;
+    if (bRet == FALSE)
+    {
+        RollBack();
+    }
+    else
+    {
+        Commit();
+    }
+
+    return TRUE;
+}

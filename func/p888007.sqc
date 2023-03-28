@@ -1,0 +1,177 @@
+/* ----------------------------------------------------------
+ * 程序名称：p888007.sqc
+ * 创建日期：2020-11-07
+ * 程序作者：周伟
+ * 版本信息：3.21.5.2-p4
+ * 程序功能：HOTS_XY_REAL_DONE查询
+ * ----------------------------------------------------------*/
+
+
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888007(LPVOID handle,int iRequest,ST_PACK *reqPack,int *piRetCode,char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char     mi_sdone_no[21]            = { 0 };
+        char     mi_smarket_code[2]         = { 0 };
+        char     mi_scust_no[11]            = { 0 };
+        char     mi_scontract_no[11]        = { 0 };
+        sqlint32 mi_idone_date              = 0;
+        char     mi_ssystem_no[5]           = { 0 };
+        char     mi_sstatus[2]              = { 0 };
+
+        char     mo_sglobal_serial[13]      = { 0 };
+        char     mo_scontract_no[11]        = { 0 };
+        char     mo_scust_no[11]            = { 0 };
+        char     mo_smarket_code[2]         = { 0 };
+        char     mo_sholder_acc_no[16]      = { 0 };
+        char     mo_ssec_acc[16]            = { 0 };
+        char     mo_sdone_no[21]            = { 0 };
+        char     mo_ssec_code[9]            = { 0 };
+        char     mo_ssec_short_name[41]     = { 0 };
+        double   mo_ddone_amt               = 0.0;
+        double   mo_ddone_vol               = 0.0;
+        sqlint32 mo_idone_date              = 0;
+        sqlint32 mo_idone_time              = 0;
+        double   mo_dfrozen_amt             = 0.0;
+        char     mo_srpt_contract_no[11]    = { 0 };
+        char     mo_swth_rpt_cntrct_no[11]  = { 0 };
+        char     mo_sorder_business_code[5] = { 0 };
+        char     mo_sdone_stat[2]           = { 0 };
+        char     mo_sdone_seat[9]           = { 0 };
+        double   mo_dsingle_fee             = 0.0;
+        double   mo_ddone_price             = 0.0;
+        double   mo_dsettle_price           = 0.0;
+        double   mo_dnet_amt                = 0.0;
+        char     mo_strade_sign[11]         = { 0 };
+        char     mo_sset_no[9]              = { 0 };
+        char     mo_sset_done_no[11]        = { 0 };
+        char     mo_srdone_datetime[27]     = { 0 };
+        char     mo_sdone_id[11]            = { 0 };
+        char     mo_ssystem_no[5]           = { 0 };
+        char     mo_sstatus[2]              = { 0 };
+        char     mo_sbs_flag[2]             = { 0 };
+        char     mo_sbs_name[3]             = { 0 };
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;
+    ST_PACK rpack = { 0 };
+    SetCol(handle, F_SSERIAL2, F_SORDER0, F_SCUST_NO, F_SMARKET_CODE, F_SHOLDER_AC_NO,
+             F_SHOLDER_AC_NO2, F_SNAME2, F_SSTOCK_CODE, F_SBANK_ACC2, F_DAMT0, F_DAMT1, F_LVOL0,
+             F_LVOL1, F_DAMT2, F_SORDER1, F_SORDER2, F_SPOST_CODE, F_SSTATUS1, F_SEMP_NO2,
+             F_DAMT3, F_DAMT4, F_DAMT5, F_DAMT6, F_SCUST_NO2, F_SSTOCK_CODE2, F_SSERIAL1,
+             F_SPHONE2, F_SSERIAL3, F_SSERIAL0, F_SSTATUS0, F_SMAIN_FLAG, F_SHOLDER_TYPE2, 0);
+
+    ksstrncpy(mi_sdone_no, reqPack->sname2, sizeof(mi_sdone_no));
+    ksstrncpy(mi_smarket_code, reqPack->smarket_code, sizeof(mi_smarket_code));
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    ksstrncpy(mi_scontract_no, reqPack->sorder0, sizeof(mi_scontract_no));
+    mi_idone_date = reqPack->lvol0;
+    ksstrncpy(mi_ssystem_no, reqPack->sserial0, sizeof(mi_ssystem_no));
+    ksstrncpy(mi_sstatus, reqPack->sstatus0, sizeof(mi_sstatus));
+    trim(mi_sdone_no);
+    trim(mi_smarket_code);
+    trim(mi_scust_no);
+    trim(mi_scontract_no);
+    trim(mi_ssystem_no);
+    trim(mi_sstatus);
+
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT
+            A.GLOBAL_SERIAL,A.CONTRACT_NO,A.CUST_NO,A.MARKET_CODE,A.HOLDER_ACC_NO,A.SEC_ACC,A.DONE_NO,
+            A.SEC_CODE,A.SEC_SHORT_NAME,A.DONE_AMT,A.DONE_VOL,A.DONE_DATE,A.DONE_TIME,A.FROZEN_AMT,
+            A.RPT_CONTRACT_NO,A.WTH_RPT_CNTRCT_NO,A.ORDER_BUSINESS_CODE,A.DONE_STAT,A.DONE_SEAT,
+            A.SINGLE_FEE,A.DONE_PRICE,A.SETTLE_PRICE,A.NET_AMT,A.TRADE_SIGN,A.SET_NO,A.SET_DONE_NO,
+            A.RDONE_DATETIME,A.DONE_ID,A.SYSTEM_NO,A.STATUS,VALUE(B.BS_FLAG,''),VALUE(B.BS_NAME,'')
+        FROM KS.HOTS_XY_REAL_DONE A LEFT JOIN SOC.ORD_BUSINESS_ATTR B
+        ON A.MARKET_CODE = B.MARKET_CODE AND A.ORDER_BUSINESS_CODE = B.ORDER_BUSINESS_CODE
+        WHERE (:mi_sdone_no = '' OR A.DONE_NO = :mi_sdone_no)
+              AND (:mi_smarket_code = '' OR A.MARKET_CODE = :mi_smarket_code)
+              AND (:mi_scust_no = '' OR A.CUST_NO = :mi_scust_no)
+              AND (:mi_scontract_no = '' OR A.CONTRACT_NO = :mi_scontract_no)
+              AND (:mi_idone_date = 0 OR A.DONE_DATE = :mi_idone_date)
+              AND (:mi_ssystem_no = '' OR A.SYSTEM_NO = :mi_ssystem_no)
+              AND (:mi_sstatus = '' OR A.STATUS = :mi_sstatus)
+        ORDER BY A.GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("打开游标错误",2372);
+        goto L_RETURN;
+    }
+
+    EXEC SQL FETCH C1 INTO
+            :mo_sglobal_serial,:mo_scontract_no,:mo_scust_no,:mo_smarket_code,:mo_sholder_acc_no,
+            :mo_ssec_acc,:mo_sdone_no,:mo_ssec_code,:mo_ssec_short_name,:mo_ddone_amt,:mo_ddone_vol,
+            :mo_idone_date,:mo_idone_time,:mo_dfrozen_amt,:mo_srpt_contract_no,:mo_swth_rpt_cntrct_no,
+            :mo_sorder_business_code,:mo_sdone_stat,:mo_sdone_seat,:mo_dsingle_fee,:mo_ddone_price,
+            :mo_dsettle_price,:mo_dnet_amt,:mo_strade_sign,:mo_sset_no,:mo_sset_done_no,
+            :mo_srdone_datetime,:mo_sdone_id,:mo_ssystem_no,:mo_sstatus,:mo_sbs_flag,:mo_sbs_name;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("从游标中获取HOTS_XY_REAL_DONE表数据错误",9760); // 错误码需要申请
+        goto L_RETURN;
+    }
+    while (SQLCODE == 0)
+    {
+        // 将流水数据打包
+        ksstrncpy(rpack.sserial2, mo_sglobal_serial, sizeof(rpack.sserial2));
+        ksstrncpy(rpack.sorder0, mo_scontract_no, sizeof(rpack.sorder0));
+        ksstrncpy(rpack.scust_no, mo_scust_no, sizeof(rpack.scust_no));
+        ksstrncpy(rpack.smarket_code, mo_smarket_code, sizeof(rpack.smarket_code));
+        ksstrncpy(rpack.sholder_ac_no, mo_sholder_acc_no, sizeof(rpack.sholder_ac_no));
+        ksstrncpy(rpack.sholder_ac_no2, mo_ssec_acc, sizeof(rpack.sholder_ac_no2));
+        ksstrncpy(rpack.sname2, mo_sdone_no, sizeof(rpack.sname2));
+        ksstrncpy(rpack.sstock_code, mo_ssec_code, sizeof(rpack.sstock_code));
+        ksstrncpy(rpack.sbank_acc2, mo_ssec_short_name, sizeof(rpack.sbank_acc2));
+        rpack.damt0 = mo_ddone_amt;
+        rpack.damt1 = mo_ddone_vol;
+        rpack.lvol0 = mo_idone_date;
+        rpack.lvol1 = mo_idone_time;
+        rpack.damt2 = mo_dfrozen_amt;
+        ksstrncpy(rpack.sorder1, mo_srpt_contract_no, sizeof(rpack.sorder1));
+        ksstrncpy(rpack.sorder2, mo_swth_rpt_cntrct_no, sizeof(rpack.sorder2));
+        ksstrncpy(rpack.spost_code, mo_sorder_business_code, sizeof(rpack.spost_code));
+        ksstrncpy(rpack.sstatus1, mo_sdone_stat, sizeof(rpack.sstatus1));
+        ksstrncpy(rpack.semp_no2, mo_sdone_seat, sizeof(rpack.semp_no2));
+        rpack.damt3 = mo_dsingle_fee;
+        rpack.damt4 = mo_ddone_price;
+        rpack.damt5 = mo_dsettle_price;
+        rpack.damt6 = mo_dnet_amt;
+        ksstrncpy(rpack.scust_no2, mo_strade_sign, sizeof(rpack.scust_no2));
+        ksstrncpy(rpack.sstock_code2, mo_sset_no, sizeof(rpack.sstock_code2));
+        ksstrncpy(rpack.sserial1, mo_sset_done_no, sizeof(rpack.sserial1));
+        ksstrncpy(rpack.sphone2, mo_srdone_datetime, sizeof(rpack.sphone2));
+        ksstrncpy(rpack.sserial3, mo_sdone_id, sizeof(rpack.sserial3));
+        ksstrncpy(rpack.sserial0, mo_ssystem_no, sizeof(rpack.sserial0));
+        ksstrncpy(rpack.sstatus0, mo_sstatus, sizeof(rpack.sstatus0));
+        ksstrncpy(rpack.smain_flag, mo_sbs_flag, sizeof(rpack.smain_flag));
+        ksstrncpy(rpack.sholder_type2, mo_sbs_name, sizeof(rpack.sholder_type2));
+
+        bRet = PutRow(handle, &rpack, piRetCode, omsg);
+        if (bRet == FALSE)
+        {
+            ERR_DEAL("PUTROW失败",4405);
+            break;
+        }
+
+        EXEC SQL FETCH C1 INTO
+            :mo_sglobal_serial,:mo_scontract_no,:mo_scust_no,:mo_smarket_code,:mo_sholder_acc_no,
+            :mo_ssec_acc,:mo_sdone_no,:mo_ssec_code,:mo_ssec_short_name,:mo_ddone_amt,:mo_ddone_vol,
+            :mo_idone_date,:mo_idone_time,:mo_dfrozen_amt,:mo_srpt_contract_no,:mo_swth_rpt_cntrct_no,
+            :mo_sorder_business_code,:mo_sdone_stat,:mo_sdone_seat,:mo_dsingle_fee,:mo_ddone_price,
+            :mo_dsettle_price,:mo_dnet_amt,:mo_strade_sign,:mo_sset_no,:mo_sset_done_no,
+            :mo_srdone_datetime,:mo_sdone_id,:mo_ssystem_no,:mo_sstatus,:mo_sbs_flag,:mo_sbs_name;
+        if(SQLCODE && SQLCODE != NOTFOUND)
+        {
+            ERR_DEAL("从游标中获取HOTS_XY_REAL_DONE表数据错误",9760); // 错误码需要申请
+            goto L_RETURN;
+        }
+    }
+L_RETURN:
+    EXEC SQL CLOSE C1;
+    return bRet;
+}

@@ -1,0 +1,181 @@
+#include ../../make/enviroment.include
+
+#---------------------------------------------------------------------
+# 获取操作系统类型，使用shell命令的uname获取，同时转换为大写
+#---------------------------------------------------------------------
+system_type := $(shell uname -a | tr [:lower:] [:upper:])
+
+#---------------------------------------------------------------------
+# 可执行文件的生成路径
+#---------------------------------------------------------------------
+BINTARGET_HOTS := $(APPDIR)/bccbin
+
+
+#---------------------------------------------------------------------
+# 编译路径设置：源代码和LIB库的相关目录
+#---------------------------------------------------------------------
+HLIB_DIR := $(APPDIR)/hots/lib
+HTXCODE_DIR := $(APPDIR)/hots/func
+#公用的交易编码路径，条用关系中包含TXCODE_DIR，为了保证能单独编译，在此取名为MTXCODE_DIR
+MTXCODE_DIR := $(APPDIR)/txcode
+HBUPUB_DIR := $(APPDIR)/hots/bupub
+HOTS_DIR := $(APPDIR)/hots/hots
+
+#---------------------------------------------------------------------
+# 编译参数设置：INCLD的相关参数
+#---------------------------------------------------------------------
+INCLD_DB2 := -I$(DB2PATH)/include
+INCLD_STD := -I$(APPDIR)/include
+HINCLD_BU := -I$(APPDIR)/hots/buinc
+
+
+HTXCODE_INCLD := $(INCLD_STD) $(INCLD_DB2) -I$(APPDIR)/hots/buinc -I$(APPDIR)/ssmt
+MTXCODE_INCLD := $(INCLD_STD) $(INCLD_DB2) -I$(APPDIR)/hots/buinc -I$(APPDIR)/ssmt
+HBUPUB_INCLD := $(HINCLD_BU)
+HOTS_INCLD := $(HINCLD_BU) $(INCLD_DB2) -I$(APPDIR)/ssmt $(INCLD_STD)
+
+ifeq ($(findstring X86_64, $(system_type)),X86_64)
+
+DB2LIBPATH := lib32
+
+else
+
+DB2LIBPATH := lib
+
+endif
+
+#---------------------------------------------------------------------
+# 编译参数设置：LIB的相关参数
+#---------------------------------------------------------------------
+
+#BUPUB_LIB :=
+#HOTS_LIB :=
+
+#如果是AIX的话需要额外增加参数
+ifeq ($(findstring AIX,$(system_type)),AIX)
+
+HTXCODE_LIB := -Xlinker -bbigtoc
+MTXCODE_LIB := -Xlinker -bbigtoc
+
+else
+
+HTXCODE_LIB := 
+MTXCODE_LIB := 
+
+endif
+
+HTXCODE_LIB += -L$(DB2PATH)/$(DB2LIBPATH) -ldb2 -L$(APPDIR)/hots/lib
+MTXCODE_LIB += -L$(DB2PATH)/$(DB2LIBPATH) -ldb2 -L$(APPDIR)/hots/lib
+
+HTXCODE_LIB += -lhtxcode_p8 -lhtxcode_p4 
+MTXCODE_LIB += -lmtxcode_p4 
+
+HTXCODE_LIB += -lbasec -lhbupubs -lcmf -lssmt -lksshmt -lkspwd -ldb2 -lkscli -lstdc++ -lm -lpthread
+MTXCODE_LIB += -lbasec -lhbupubs -lcmf -lssmt -lksshmt -lkspwd -ldb2 -lkscli -lstdc++ -lm -lpthread
+
+
+ifeq ($(findstring dev, $(MAKECMDGOALS)),dev)
+
+ifeq ($(findstring AIX,$(system_type)),AIX)
+
+LIBS_LAST := 
+
+else 
+
+LIBS_LAST := -lgcov
+
+endif
+
+endif
+
+#---------------------------------------------------------------------
+# 编译命令和编译参数
+#---------------------------------------------------------------------
+#如果是AIX的话就只需要使用gcc,LINUX的话32位的系统只需要gcc,64位的需要gcc -m32
+ifeq ($(findstring AIX, $(system_type)),AIX)
+
+CC := gcc
+CPP := g++
+
+else ifeq ($(findstring X86_64, $(system_type)),X86_64)
+
+CC := gcc -m32
+CPP := g++ -m32
+
+else
+
+CC := gcc
+CPP := g++
+
+endif
+
+FLAG_STD := -c -g
+
+#如果是AIX的话需要额外增加参数
+ifeq ($(findstring AIX, $(system_type)),AIX)
+
+FLAG_STD += -DOS_AIX
+
+endif
+
+HTXCODE_FLAG := $(FLAG_STD)
+MTXCODE_FLAG := $(FLAG_STD)
+HBUPUB_FLAG := -c -g -DBUPUBLIB
+HOTS_FLAG := -c -g
+TXCODE_ENVIROMENT_SET :=
+
+ifeq ($(findstring AIX,$(system_type)),AIX)
+
+
+HBUPUB_FLAG += -DAIX
+HOTS_FLAG += -DAIX
+TXCODE_ENVIROMENT_SET += LDR_CNTRL=MAXDATA=0x20000000
+
+else
+
+HBUPUB_FLAG += -DLINUX -Wall
+
+endif
+
+HTXCODE_FLAG += -DBCC -DVIP -DTUISONG
+MTXCODE_FLAG += -DBCC -DVIP -DTUISONG
+
+
+ifeq ($(findstring dev, $(MAKECMDGOALS)),dev)
+
+ifeq ($(findstring AIX,$(system_type)),AIX)
+
+DEVFLAGS :=
+
+else
+
+DEVFLAGS += -fprofile-arcs -ftest-coverage
+
+endif
+
+endif
+
+
+HTXCODE_FLAG += $(DEVFLAGS)
+MTXCODE_FLAG += $(DEVFLAGS)
+HBUPUB_FLAG += $(DEVFLAGS)
+HOTS_FLAG += $(DEVFLAGS)
+
+#---------------------------------------------------------------------
+# LIB扩展名：linux 为so, GCC_AIX 和 XLC 为a
+# LIB打包命令：linux 为 $(CC) -shared -o GCC_AIX 和 XLC 为 ar -rv
+# 另外提供AR的指令，为ar -rv
+#---------------------------------------------------------------------
+AR := ar -rv
+
+ifeq ($(findstring AIX,$(system_type)),AIX)
+
+EXTEND := a
+LIB := $(AR)
+
+else
+
+EXTEND := so
+LIB := $(CC) -shared -o
+
+endif

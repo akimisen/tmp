@@ -1,0 +1,989 @@
+/* --------------------------------------------------------------
+ * 程序名称: p888018.sqc
+ * 创建日期：2021-03-03
+ * 程序作者: 李向东
+ * 程序功能: PUSHBU推送非交易设置流水
+ *          推送增加标识 lvol12=2;标识推送来源为融资融券
+ * 备注信息: SECRZRQ-9174
+ * 版本信息: 3.21.5.7
+ * 专题信息：【20210303】SECREQ-13212 HOTSBU支持推送非交易设置信息
+ * --------------------------------------------------------------
+ * 修改日期: 2021-04-06
+ * 修改人员: 李向东
+ * 修改描述: 1、KS.CUST_CREDIT_INFO.RFN_STATUS 字段推送时不进行trim
+ *          2、修复smarket_code赋值位数问题
+ * 备注信息: SECRZRQ-9406 
+ * 版本信息: 3.21.5.7
+ * 专题信息: SECREQ-13447 HOTSBU非交易设置二期
+ * --------------------------------------------------------------
+ * 修改日期: 2021-04-28
+ * 修改人员: 邓炜
+ * 修改描述: 1、增加输出的字段
+ * 备注信息: SECRZRQ-9411  
+ * 版本信息: 3.21.5.8
+ * 专题信息: SECREQ-13508【海通】【融资融券】支持非交易同步-集中度控制与豁免，银行换卡等业务同步
+ * --------------------------------------------------------------
+ * 修改日期: 2021-12-24
+ * 修改人员: 李向东
+ * 修改描述: PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包
+ * 备注信息: SECRZRQ-10823
+ * 版本信息: 3.22.1.0
+ * 专题信息: SECRZRQ-10823【海通】【两融】解决HOTSBU压测时500笔委托时丢包问题
+ * --------------------------------------------------------------
+ * 修改日期: 2022-08-08
+ * 修改人员: 李向东
+ * 修改描述: pack包发送vsmess超过254会导致bcc异常，这里推送vsmess时只拷贝254长度
+ * 备注信息: SECREQ-15421【海通】【融资融券】hotsbu推送vsmess超过254导致bcc发包异常
+ * 版本信息: 3.22.5.0
+ * 专题信息: SECREQ-15421【海通】【融资融券】hotsbu推送vsmess超过254导致bcc发包异常
+ * --------------------------------------------------------------*/
+#include "inc.h"
+#include "hotsparam.h"
+#include "mypub.h"
+
+EXEC SQL INCLUDE sqlca;
+BOOL FillCpackByItem(ST_PACK * tPack,char *spack_item,char *stable_item_value,int *piRetCode,char *omsg);
+BOOL F888018(LPVOID handle, int iRequest, ST_PACK *reqPack, int *piRetCode, char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        //公用
+        char mt_sglobal_serial[13] = {0}; //全局流水号
+        char mt_stable_name[61] = {0}; //表名(CUST_CREDIT_INFO、CUST_MARGIN_DETAIL、HOLDER_CONTROL_INFO、WHITELIST)
+        char mt_sopertate_type[2] = {0}; //操作类型 (1-增加；2-修改；3-删除)
+        char mt_scust_no[11] = {0}; //客户号
+        char mt_ssystem_no[5] = {0}; //系统编号
+        char mt_slast_value[1601] = {0}; //最新值
+        char mt_scpack_name[1601] = {0}; //CPACK字段名
+        sqlint32 mt_itrans_num = 0; //需要解析的CPACK数量
+        char mt_stmp_pack_value[256] = {0}; //解析字段临时值
+        char mt_stmp_item_value[256] = {0}; //解析字段临时值
+        char mt_sdate[9]                 = { 0 };
+        char mt_ssource_no[11]           = { 0 };
+        char mt_sfunction_no[11]         = { 0 };
+        char mt_sdest_no[6]              = { 0 };
+    EXEC SQL END DECLARE SECTION;
+
+    int icount     = 0; // count for pushed
+    int irecount   = 0; // count for repushed
+    int iloop      = 0; // 解析字段for循环
+    BOOL bRet      = TRUE;
+    BOOL bSuccess  = TRUE;
+    ST_CPACK rpack = { 0 };
+    int isource_no = 0;
+    int ifunction_no = 0;
+    int idest_no   = 0;
+
+    // 获取当前时间
+    GetMachineDateTime(mt_sdate, NULL);
+
+    rpack.head.RequestType = 1421408;
+    rpack.head.firstflag = 1;
+    rpack.head.nextflag = 0;
+    rpack.head.recCount = 1;
+    /* 增加输出字段 F_SCUST_TYPE,F_SCUST_TYPE2,F_SSTOCK_CODE modify by lxd 2021-04-07 */
+    /* 增加输出字段 F_SBANK_CODE,F_LBANK_ACC_TYPE,F_SBANK_ACC,F_LCERT_CODE,
+		F_SNAME2,F_SMARKET_CODE2,F_SHOLDER_AC_NO2,F_SCHANGE_EMP,
+		F_STIME1,F_SCHECK_EMP,F_SDATE2,F_SCUST_AUTH2,F_SCLOSE_EMP,
+		F_SDATE3,F_STIME3,F_SSERIAL1,F_SBANK_ACC2,F_SALL_NAME modify by dengwei 2021-04-28 */
+    SetColEx(NULL, &rpack, F_LVOL12,/* lvol12传系统标识，不可被占用 annotation by lxd 2021-03-10 */
+        F_DAMT0,F_DAMT1,F_DAMT2,F_DAMT3,F_DAMT4,
+        F_DAMT5,F_DAMT6,F_LVOL0,F_SBRANCH_CODE0,F_SCURRENCY_TYPE,
+        F_SCUST_NO,F_SCUST_NO2,F_SDATE0,F_SDATE1,F_SEMAIL,
+        F_SEMP,F_SHOLDER_AC_NO,F_SHOLDER_TYPE,F_SMAIN_FLAG,F_SMAIN_FLAG2,
+        F_SMARKET_CODE,F_SNAME,F_SNOTE,F_SNOTE2,F_SOPEN_EMP,
+        F_SPHONE,F_SROOM_NO,F_SSERIAL0,F_SSERIAL2,F_SSERIAL3,
+        F_SSERIAL4,F_SSTATION0,F_SSTATION1,F_SSTATUS0,F_SSTATUS1,
+        F_SSTATUS2,F_SSTATUS3,F_SSTATUS4,F_STIME0,F_VSVARSTR0,
+        F_VSVARSTR1,F_VSVARSTR2,F_VSVARSTR3,F_SORDER0,F_SCERT_NO,
+        F_SCERT_NO2,F_SPHONE2,F_SCUST_TYPE,F_SCUST_TYPE2,F_SSTOCK_CODE,
+		F_SBANK_CODE,F_LBANK_ACC_TYPE,F_SBANK_ACC,F_LCERT_CODE,
+		F_SNAME2,F_SMARKET_CODE2,F_SHOLDER_AC_NO2,F_SCHANGE_EMP,
+		F_STIME1,F_SCHECK_EMP,F_SDATE2,F_SCUST_AUTH2,F_SCLOSE_EMP,
+		F_SDATE3,F_STIME3,F_SSERIAL1,F_SBANK_ACC2,F_SALL_NAME,
+        0);
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT
+            GLOBAL_SERIAL,SYSTEM_NO,CUST_NO,TABLE_NAME,OPERTATE_TYPE,
+            LAST_VALUE
+        FROM KS.HOTS_NOTRADE_TABLE_CHG A
+        WHERE A.STATUS = '0'
+        ORDER BY A.GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if (SQLCODE != 0)
+    {
+        sprintf(omsg, "打开游标错误");
+        ERR_DEAL(omsg, 2372);
+        goto L_RETU;
+    }
+
+    while (icount < g_pushbu_param.inumPerPush)
+    {
+        EXEC SQL FETCH C1 INTO
+            :mt_sglobal_serial,:mt_ssystem_no,:mt_scust_no,:mt_stable_name,:mt_sopertate_type,
+            :mt_slast_value;
+        if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+        {
+            sprintf(omsg, "从游标中获取HOTS_NOTRADE_TABLE_CHG表数据错误");
+            ERR_DEAL(omsg, 9816); 
+            goto L_RETU;
+        }
+        else if (SQLCODE == NOTFOUND)
+        {
+            break;
+        }
+        trim(mt_ssystem_no);
+        // ''+系统分组匹配
+        EXEC SQL
+            SELECT SOURCE_NO,DEST_NO,FUNCTION_NO
+                INTO :mt_ssource_no,:mt_sdest_no,:mt_sfunction_no
+            FROM KS.HOTS_SERVER_CFG
+            WHERE BUSINESS_CODE=''
+                  AND SYSTEM_NO=:mt_ssystem_no
+            WITH UR;
+        if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+        {
+            sprintf(omsg, "查HOTS路由表失败");
+            ERR_DEAL(omsg, 9711);
+            goto L_RETU;
+        }
+        // ''+''匹配
+        else if (SQLCODE == NOTFOUND)
+        {
+            EXEC SQL
+            SELECT SOURCE_NO,DEST_NO,FUNCTION_NO
+                INTO :mt_ssource_no,:mt_sdest_no,:mt_sfunction_no
+            FROM KS.HOTS_SERVER_CFG
+            WHERE BUSINESS_CODE=''
+                  AND SYSTEM_NO=''
+            WITH UR;
+            if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+            {
+                sprintf(omsg, "查HOTS路由表失败");
+                ERR_DEAL(omsg, 9711);
+                goto L_RETU;
+            }
+            else if(SQLCODE == NOTFOUND)
+            {
+                WriteLog(1, "[%s]成交未配置路由信息, 且无默认配置, 无法推送, 更新HOTS_NOTRADE_TABLE_CHG[%s]+[%s]+[%s]+[%s]状态为存疑",
+                         mt_ssystem_no, mt_sglobal_serial, mt_stable_name, mt_scust_no, mt_sopertate_type);
+                EXEC SQL
+                    UPDATE KS.HOTS_NOTRADE_TABLE_CHG
+                    SET STATUS = '3'
+                    WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+                if (SQLCODE != 0)
+                {
+                    sprintf(omsg, "更新HOTS_NOTRADE_TABLE_CHG表状态错误");
+                    ERR_DEAL(omsg, 9815);
+                    goto L_RETU;
+                }
+                continue;
+            }
+        }
+
+        // 将流水数据打包
+        memset(&rpack.pack,0,sizeof(rpack.pack));
+        rpack.pack.lvol12 = 2; //交易系统标识 1-集中交易；2-融资融券
+        ksstrncpy(rpack.pack.sserial2, mt_sglobal_serial, sizeof(rpack.pack.sserial2));
+        ksstrncpy(rpack.pack.semail, mt_stable_name, sizeof(rpack.pack.semail));
+        ksstrncpy(rpack.pack.sstatus0, mt_sopertate_type, sizeof(rpack.pack.sstatus0));
+        ksstrncpy(rpack.pack.scust_no, mt_scust_no, sizeof(rpack.pack.scust_no));
+        //竖状配置解析填包
+        mt_itrans_num = 0;
+        EXEC SQL 
+            SELECT CPACK_NAME, TRANS_NUM
+            INTO :mt_scpack_name,:mt_itrans_num
+            FROM KS.HOTS_NOTRADE_TABLE_CFG
+            WHERE TABLE_NAME = :mt_stable_name;
+        if (SQLCODE != 0)
+        {
+            sprintf(omsg, "查HOTS_NOTRADE_TABLE_CFG表失败,TABLE_NAME = %s",mt_stable_name);
+            ERR_DEAL(omsg, 9892);
+            goto L_RETU;
+        }
+        trim(mt_slast_value);
+        trim(mt_scpack_name);
+        for (iloop = 0; iloop < mt_itrans_num; iloop++)
+        {
+            mt_stmp_pack_value[0] = '\0';
+            mt_stmp_item_value[0] = '\0';
+            GetSpListStr(mt_scpack_name,iloop,mt_stmp_pack_value,sizeof(mt_stmp_pack_value),'|');
+            trim(mt_stmp_pack_value);
+            /* 配置的cpack字段没了就不继续往下解析了 annotation by lxd 2021-03-05 */
+            if (mt_stmp_pack_value[0] == '\0')
+            {
+                break;
+            }
+            GetSpListStr(mt_slast_value,iloop,mt_stmp_item_value,sizeof(mt_stmp_item_value),'|');
+            /* KS.CUST_CREDIT_INFO.RFN_STATUS按位取值，不进行trim modify by lxd 2021-04-06 */
+            if ( ( iloop == 18 ) && (TRUE==InStr(mt_stable_name,"CUST_CREDIT_INFO")) )
+            {
+                /* no trim */
+            }
+            else
+            {
+                trim(mt_stmp_item_value);
+            }
+            if (FALSE == FillCpackByItem(&(rpack.pack),mt_stmp_pack_value,mt_stmp_item_value,piRetCode,omsg))
+            {
+                ERR_DEAL(omsg, *piRetCode);
+                goto L_RETU;
+            }
+        }
+
+        // 推送该条内容
+        isource_no = atoi(mt_ssource_no);
+        idest_no = atoi(mt_sdest_no);
+        ifunction_no = atoi(mt_sfunction_no);
+        if (PushData(isource_no, idest_no, ifunction_no, 0, &rpack, PM_ACK, 0, NULL) < 0) /* PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包 modify by lxd 2021-12-24 */
+        {
+            if (bSuccess != FALSE)
+            {
+                bSuccess = FALSE;
+                irecount = 1;
+            }
+            while(irecount++ < g_pushbu_param.itryTimes)
+            {
+                if (PushData(isource_no, idest_no, ifunction_no, 0, &rpack, PM_ACK, 0, NULL) >= 0) /* PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包 modify by lxd 2021-12-24 */
+                {
+                    bSuccess = TRUE;
+                    EXEC SQL
+                        UPDATE KS.HOTS_NOTRADE_TABLE_CHG
+                        SET STATUS = '1'
+                        WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+                    if (SQLCODE != 0)
+                    {
+                        sprintf(omsg, "更新HOTS_NOTRADE_TABLE_CHG表状态错误");
+                        ERR_DEAL(omsg, 9815);
+                        goto L_RETU;
+                    }
+                    ++icount;
+                    break;
+                }
+            }
+            if (bSuccess == FALSE)
+            {
+                // 复位
+                bSuccess = TRUE;
+                EXEC SQL
+                    UPDATE KS.HOTS_NOTRADE_TABLE_CHG
+                    SET STATUS = '3'
+                    WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+                if (SQLCODE != 0)
+                {
+                    sprintf(omsg, "更新HOTS_NOTRADE_TABLE_CHG表状态错误");
+                    ERR_DEAL(omsg, 9815);
+                    goto L_RETU;
+                }
+            }
+
+        }
+        else
+        {
+            EXEC SQL
+                UPDATE KS.HOTS_NOTRADE_TABLE_CHG
+                SET STATUS = '1'
+                WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+            if (SQLCODE != 0)
+            {
+                sprintf(omsg, "更新HOTS_NOTRADE_TABLE_CHG表状态错误");
+                ERR_DEAL(omsg, 9815);
+                goto L_RETU;
+            }
+
+            ++icount;
+        }
+    }
+
+L_RETU:
+    EXEC SQL CLOSE C1;
+    if (bRet == FALSE)
+    {
+        RollBack();
+    }
+    else
+    {
+        Commit();
+    }
+
+    return TRUE;
+}
+
+BOOL FillCpackByItem(ST_PACK * tPack,char *spack_item,char *stable_item_value,int *piRetCode,char *omsg)
+{
+    trim(spack_item);
+    trim(stable_item_value);
+    if (spack_item[0] == '\0')
+    {
+        *piRetCode = 6025;
+        sprintf(omsg,"cpack字段不合法[%s],填充出错！",spack_item);
+        return FALSE;
+    }
+    switch (spack_item[0])
+    {
+    case 's': //char
+        if (strcmp("scust_no",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_no,stable_item_value,11);
+        }
+        else if (strcmp("scust_no2",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_no2,stable_item_value,11);
+        }
+        else if (strcmp("sbranch_code0",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbranch_code0,stable_item_value,4);
+        }
+        else if (strcmp("sbranch_code1",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbranch_code1,stable_item_value,4);
+        }
+        else if (strcmp("sbranch_code2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbranch_code2,stable_item_value,4);
+        }
+        else if (strcmp("scurrency_type",spack_item)==0)
+        {
+            ksstrncpy(tPack->scurrency_type,stable_item_value,3);
+        }
+        else if (strcmp("scurrency_type2",spack_item)==0)
+        {
+            ksstrncpy(tPack->scurrency_type2,stable_item_value,3);
+        }
+        else if (strcmp("sdate0",spack_item)==0)
+        {
+            ksstrncpy(tPack->sdate0,stable_item_value,9);
+        }
+        else if (strcmp("sdate1",spack_item)==0)
+        {
+            ksstrncpy(tPack->sdate1,stable_item_value,9);
+        }
+        else if (strcmp("sdate2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sdate2,stable_item_value,9);
+        }
+        else if (strcmp("sdate3",spack_item)==0)
+        {
+            ksstrncpy(tPack->sdate3,stable_item_value,9);
+        }
+        else if (strcmp("stime0",spack_item)==0)
+        {
+            ksstrncpy(tPack->stime0,stable_item_value,9);
+        }
+        else if (strcmp("stime1",spack_item)==0)
+        {
+            ksstrncpy(tPack->stime1,stable_item_value,9);
+        }
+        else if (strcmp("stime2",spack_item)==0)
+        {
+            ksstrncpy(tPack->stime2,stable_item_value,9);
+        }
+        else if (strcmp("stime3",spack_item)==0)
+        {
+            ksstrncpy(tPack->stime3,stable_item_value,9);
+        }
+        else if (strcmp("semp",spack_item)==0)
+        {
+            ksstrncpy(tPack->semp,stable_item_value,7);
+        }
+        else if (strcmp("sopen_emp",spack_item)==0)
+        {
+            ksstrncpy(tPack->sopen_emp,stable_item_value,7);
+        }
+        else if (strcmp("sholder_ac_no",spack_item)==0)
+        {
+            ksstrncpy(tPack->sholder_ac_no,stable_item_value,16);
+        }
+        else if (strcmp("sholder_ac_no2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sholder_ac_no2,stable_item_value,16);
+        }
+        else if (strcmp("sholder_type",spack_item)==0)
+        {
+            ksstrncpy(tPack->sholder_type,stable_item_value,3);
+        }
+        else if (strcmp("sholder_type2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sholder_type2,stable_item_value,3);
+        }
+        else if (strcmp("sname",spack_item)==0)
+        {
+            ksstrncpy(tPack->sname,stable_item_value,21);
+        }
+        else if (strcmp("sname2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sname2,stable_item_value,21);
+        }
+        else if (strcmp("sall_name",spack_item)==0)
+        {
+            ksstrncpy(tPack->sall_name,stable_item_value,81);
+        }
+        else if (strcmp("smarket_code",spack_item)==0)
+        {
+            ksstrncpy(tPack->smarket_code,stable_item_value,2);
+        }
+        else if (strcmp("smarket_code2",spack_item)==0)
+        {
+            ksstrncpy(tPack->smarket_code2,stable_item_value,2);
+        }
+        else if (strcmp("smain_flag",spack_item)==0)
+        {
+            ksstrncpy(tPack->smain_flag,stable_item_value,2);
+        }
+        else if (strcmp("smain_flag2",spack_item)==0)
+        {
+            ksstrncpy(tPack->smain_flag2,stable_item_value,2);
+        }
+        else if (strcmp("sstock_code",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstock_code,stable_item_value,9);
+        }
+        else if (strcmp("sstock_code2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstock_code2,stable_item_value,9);
+        }
+        else if (strcmp("scust_type",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_type,stable_item_value,3);
+        }
+        else if (strcmp("scust_type2",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_type2,stable_item_value,3);
+        }
+        else if (strcmp("sstat_type",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstat_type,stable_item_value,3);
+        }
+        else if (strcmp("sstat_type2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstat_type2,stable_item_value,3);
+        }
+        else if (strcmp("sroom_no",spack_item)==0)
+        {
+            ksstrncpy(tPack->sroom_no,stable_item_value,4);
+        }
+        else if (strcmp("sroom_no2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sroom_no2,stable_item_value,4);
+        }
+        else if (strcmp("sphone",spack_item)==0)
+        {
+            ksstrncpy(tPack->sphone,stable_item_value,31);
+        }
+        else if (strcmp("sphone2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sphone2,stable_item_value,31);
+        }
+        else if (strcmp("sphone3",spack_item)==0)
+        {
+            ksstrncpy(tPack->sphone3,stable_item_value,31);
+        }
+        else if (strcmp("spager",spack_item)==0)
+        {
+            ksstrncpy(tPack->spager,stable_item_value,31);
+        }
+        else if (strcmp("semail",spack_item)==0)
+        {
+            ksstrncpy(tPack->semail,stable_item_value,61);
+        }
+        else if (strcmp("semail2",spack_item)==0)
+        {
+            ksstrncpy(tPack->semail2,stable_item_value,61);
+        }
+        else if (strcmp("snote",spack_item)==0)
+        {
+            ksstrncpy(tPack->snote,stable_item_value,81);
+        }
+        else if (strcmp("snote2",spack_item)==0)
+        {
+            ksstrncpy(tPack->snote2,stable_item_value,81);
+        }
+        else if (strcmp("sstatus0",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstatus0,stable_item_value,2);
+        }
+        else if (strcmp("sstatus1",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstatus1,stable_item_value,2);
+        }
+        else if (strcmp("sstatus2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstatus2,stable_item_value,2);
+        }
+        else if (strcmp("sstatus3",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstatus3,stable_item_value,2);
+        }
+        else if (strcmp("sstatus4",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstatus4,stable_item_value,2);
+        }
+        else if (strcmp("sserial0",spack_item)==0)
+        {
+            ksstrncpy(tPack->sserial0,stable_item_value,13);
+        }
+        else if (strcmp("sserial1",spack_item)==0)
+        {
+            ksstrncpy(tPack->sserial1,stable_item_value,13);
+        }
+        else if (strcmp("sserial2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sserial2,stable_item_value,13);
+        }
+        else if (strcmp("sserial3",spack_item)==0)
+        {
+            ksstrncpy(tPack->sserial3,stable_item_value,13);
+        }
+        else if (strcmp("sserial4",spack_item)==0)
+        {
+            ksstrncpy(tPack->sserial4,stable_item_value,13);
+        }
+        else if (strcmp("sstation0",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstation0,stable_item_value,17);
+        }
+        else if (strcmp("sstation1",spack_item)==0)
+        {
+            ksstrncpy(tPack->sstation1,stable_item_value,17);
+        }
+        else if (strcmp("sbank_acc",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbank_acc,stable_item_value,41);
+        }
+        else if (strcmp("sbank_acc2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbank_acc2,stable_item_value,41);
+        }
+        else if (strcmp("sbank_code",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbank_code,stable_item_value,7);
+        }
+        else if (strcmp("sbank_code2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbank_code2,stable_item_value,7);
+        }
+        else if (strcmp("semp_no",spack_item)==0)
+        {
+            ksstrncpy(tPack->semp_no,stable_item_value,9);
+        }
+        else if (strcmp("semp_no2",spack_item)==0)
+        {
+            ksstrncpy(tPack->semp_no2,stable_item_value,9);
+        }
+        else if (strcmp("sbankname",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbankname,stable_item_value,81);
+        }
+        else if (strcmp("sbankname2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbankname2,stable_item_value,81);
+        }
+        else if (strcmp("scard0",spack_item)==0)
+        {
+            ksstrncpy(tPack->scard0,stable_item_value,51);
+        }
+        else if (strcmp("scard1",spack_item)==0)
+        {
+            ksstrncpy(tPack->scard1,stable_item_value,51);
+        }
+        else if (strcmp("sorder0",spack_item)==0)
+        {
+            ksstrncpy(tPack->sorder0,stable_item_value,11);
+        }
+        else if (strcmp("sorder1",spack_item)==0)
+        {
+            ksstrncpy(tPack->sorder1,stable_item_value,11);
+        }
+        else if (strcmp("sorder2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sorder2,stable_item_value,11);
+        }
+        else if (strcmp("scusttypes",spack_item)==0)
+        {
+            ksstrncpy(tPack->scusttypes,stable_item_value,201);
+        }
+        else if (strcmp("ssectypes",spack_item)==0)
+        {
+            ksstrncpy(tPack->ssectypes,stable_item_value,201);
+        }
+        else if (strcmp("saddr",spack_item)==0)
+        {
+            ksstrncpy(tPack->saddr,stable_item_value,81);
+        }
+        else if (strcmp("saddr2",spack_item)==0)
+        {
+            ksstrncpy(tPack->saddr2,stable_item_value,81);
+        }
+        else if (strcmp("sclose_emp",spack_item)==0)
+        {
+            ksstrncpy(tPack->sclose_emp,stable_item_value,7);
+        }
+        else if (strcmp("schange_emp",spack_item)==0)
+        {
+            ksstrncpy(tPack->schange_emp,stable_item_value,7);
+        }
+        else if (strcmp("scheck_emp",spack_item)==0)
+        {
+            ksstrncpy(tPack->scheck_emp,stable_item_value,7);
+        }
+        else if (strcmp("snation_code",spack_item)==0)
+        {
+            ksstrncpy(tPack->snation_code,stable_item_value,4);
+        }
+        else if (strcmp("stx_pwd",spack_item)==0)
+        {
+            ksstrncpy(tPack->stx_pwd,stable_item_value,9);
+        }
+        else if (strcmp("stx_pwd2",spack_item)==0)
+        {
+            ksstrncpy(tPack->stx_pwd2,stable_item_value,9);
+        }
+        else if (strcmp("swithdraw_pwd",spack_item)==0)
+        {
+            ksstrncpy(tPack->swithdraw_pwd,stable_item_value,9);
+        }
+        else if (strcmp("swithdraw_pwd2",spack_item)==0)
+        {
+            ksstrncpy(tPack->swithdraw_pwd2,stable_item_value,9);
+        }
+        else if (strcmp("semp_pwd",spack_item)==0)
+        {
+            ksstrncpy(tPack->semp_pwd,stable_item_value,9);
+        }
+        else if (strcmp("semp_pwd2",spack_item)==0)
+        {
+            ksstrncpy(tPack->semp_pwd2,stable_item_value,9);
+        }
+        else if (strcmp("sbank_pwd",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbank_pwd,stable_item_value,9);
+        }
+        else if (strcmp("sbank_pwd2",spack_item)==0)
+        {
+            ksstrncpy(tPack->sbank_pwd2,stable_item_value,9);
+        }
+        else if (strcmp("scust_auth",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_auth,stable_item_value,21);
+        }
+        else if (strcmp("scust_auth2",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_auth2,stable_item_value,21);
+        }
+        else if (strcmp("scust_limit",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_limit,stable_item_value,33);
+        }
+        else if (strcmp("scust_limit2",spack_item)==0)
+        {
+            ksstrncpy(tPack->scust_limit2,stable_item_value,33);
+        }
+        else if (strcmp("spost_code",spack_item)==0)
+        {
+            ksstrncpy(tPack->spost_code,stable_item_value,7);
+        }
+        else if (strcmp("spost_code2",spack_item)==0)
+        {
+            ksstrncpy(tPack->spost_code2,stable_item_value,7);
+        }
+        else if (strcmp("scert_no",spack_item)==0)
+        {
+            ksstrncpy(tPack->scert_no,stable_item_value,51);
+        }
+        else if (strcmp("scert_no2",spack_item)==0)
+        {
+            ksstrncpy(tPack->scert_no2,stable_item_value,51);
+        }
+        else
+        {
+            *piRetCode = 6025;
+            sprintf(omsg,"cpack字段不合法[%s],填充出错！",spack_item);
+            return FALSE;
+        }
+        break;
+    case 'u': //unsigned char
+        // unsigned char 不支持使用
+        *piRetCode = 6025;
+        sprintf(omsg,"cpack unsigned char字段[%s]不支持使用,请更换字段！",spack_item);
+        return FALSE;
+        //break;
+    case 'v': //char
+        if (strcmp("vsmess",spack_item)==0)
+        {
+            ksstrncpy(tPack->vsmess,stable_item_value,255); /* 有效字符拷贝254字节 modify by xiangdong.li 2022-08-08 */
+        }
+        else if (strcmp("vsvarstr0",spack_item)==0)
+        {
+            ksstrncpy(tPack->vsvarstr0,stable_item_value,256);
+        }
+        else if (strcmp("vsvarstr1",spack_item)==0)
+        {
+            ksstrncpy(tPack->vsvarstr1,stable_item_value,256);
+        }
+        else if (strcmp("vsvarstr2",spack_item)==0)
+        {
+            ksstrncpy(tPack->vsvarstr2,stable_item_value,256);
+        }
+        else if (strcmp("vsvarstr3",spack_item)==0)
+        {
+            ksstrncpy(tPack->vsvarstr3,stable_item_value,256);
+        }
+        else
+        {
+            *piRetCode = 6025;
+            sprintf(omsg,"cpack字段不合法[%s],填充出错！",spack_item);
+            return FALSE;
+        }
+        break;
+    case 'd': //double
+        if (strcmp("damt0",spack_item)==0)
+        {
+            tPack->damt0 = atof(stable_item_value);
+        }
+        else if (strcmp("damt1",spack_item)==0)
+        {
+            tPack->damt1 = atof(stable_item_value);
+        }
+        else if (strcmp("damt2",spack_item)==0)
+        {
+            tPack->damt2 = atof(stable_item_value);
+        }
+        else if (strcmp("damt3",spack_item)==0)
+        {
+            tPack->damt3 = atof(stable_item_value);
+        }
+        else if (strcmp("damt4",spack_item)==0)
+        {
+            tPack->damt4 = atof(stable_item_value);
+        }
+        else if (strcmp("damt5",spack_item)==0)
+        {
+            tPack->damt5 = atof(stable_item_value);
+        }
+        else if (strcmp("damt6",spack_item)==0)
+        {
+            tPack->damt6 = atof(stable_item_value);
+        }
+        else if (strcmp("damt7",spack_item)==0)
+        {
+            tPack->damt7 = atof(stable_item_value);
+        }
+        else if (strcmp("damt8",spack_item)==0)
+        {
+            tPack->damt8 = atof(stable_item_value);
+        }
+        else if (strcmp("damt9",spack_item)==0)
+        {
+            tPack->damt9 = atof(stable_item_value);
+        }
+        else if (strcmp("damt10",spack_item)==0)
+        {
+            tPack->damt10 = atof(stable_item_value);
+        }
+        else if (strcmp("damt11",spack_item)==0)
+        {
+            tPack->damt11 = atof(stable_item_value);
+        }
+        else if (strcmp("damt12",spack_item)==0)
+        {
+            tPack->damt12 = atof(stable_item_value);
+        }
+        else if (strcmp("damt13",spack_item)==0)
+        {
+            tPack->damt13 = atof(stable_item_value);
+        }
+        else if (strcmp("damt14",spack_item)==0)
+        {
+            tPack->damt14 = atof(stable_item_value);
+        }
+        else if (strcmp("damt15",spack_item)==0)
+        {
+            tPack->damt15 = atof(stable_item_value);
+        }
+        else if (strcmp("damt16",spack_item)==0)
+        {
+            tPack->damt16 = atof(stable_item_value);
+        }
+        else if (strcmp("damt17",spack_item)==0)
+        {
+            tPack->damt17 = atof(stable_item_value);
+        }
+        else if (strcmp("damt18",spack_item)==0)
+        {
+            tPack->damt18 = atof(stable_item_value);
+        }
+        else if (strcmp("damt19",spack_item)==0)
+        {
+            tPack->damt19 = atof(stable_item_value);
+        }
+        else if (strcmp("damt20",spack_item)==0)
+        {
+            tPack->damt20 = atof(stable_item_value);
+        }
+        else if (strcmp("damt21",spack_item)==0)
+        {
+            tPack->damt21 = atof(stable_item_value);
+        }
+        else if (strcmp("damt22",spack_item)==0)
+        {
+            tPack->damt22 = atof(stable_item_value);
+        }
+        else if (strcmp("damt23",spack_item)==0)
+        {
+            tPack->damt23 = atof(stable_item_value);
+        }
+        else if (strcmp("damt24",spack_item)==0)
+        {
+            tPack->damt24 = atof(stable_item_value);
+        }
+        else if (strcmp("damt25",spack_item)==0)
+        {
+            tPack->damt25 = atof(stable_item_value);
+        }
+        else if (strcmp("damt26",spack_item)==0)
+        {
+            tPack->damt26 = atof(stable_item_value);
+        }
+        else if (strcmp("damt27",spack_item)==0)
+        {
+            tPack->damt27 = atof(stable_item_value);
+        }
+        else if (strcmp("damt28",spack_item)==0)
+        {
+            tPack->damt28 = atof(stable_item_value);
+        }
+        else if (strcmp("damt29",spack_item)==0)
+        {
+            tPack->damt29 = atof(stable_item_value);
+        }
+        else if (strcmp("damt30",spack_item)==0)
+        {
+            tPack->damt30 = atof(stable_item_value);
+        }
+        else if (strcmp("damt31",spack_item)==0)
+        {
+            tPack->damt31 = atof(stable_item_value);
+        }
+        else if (strcmp("damt32",spack_item)==0)
+        {
+            tPack->damt32 = atof(stable_item_value);
+        }
+        else if (strcmp("damt33",spack_item)==0)
+        {
+            tPack->damt33 = atof(stable_item_value);
+        }
+        else if (strcmp("drate0",spack_item)==0)
+        {
+            tPack->drate0 = atof(stable_item_value);
+        }
+        else if (strcmp("drate1",spack_item)==0)
+        {
+            tPack->drate1 = atof(stable_item_value);
+        }
+        else
+        {
+            *piRetCode = 6025;
+            sprintf(omsg,"cpack字段不合法[%s],填充出错！",spack_item);
+            return FALSE;
+        }
+        break;
+    case 'l': //long
+        if (strcmp("lvol0",spack_item)==0)
+        {
+            tPack->lvol0 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol1",spack_item)==0)
+        {
+            tPack->lvol1 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol2",spack_item)==0)
+        {
+            tPack->lvol2 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol3",spack_item)==0)
+        {
+            tPack->lvol3 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol4",spack_item)==0)
+        {
+            tPack->lvol4 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol5",spack_item)==0)
+        {
+            tPack->lvol5 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol6",spack_item)==0)
+        {
+            tPack->lvol6 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol7",spack_item)==0)
+        {
+            tPack->lvol7 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol8",spack_item)==0)
+        {
+            tPack->lvol8 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol9",spack_item)==0)
+        {
+            tPack->lvol9 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol10",spack_item)==0)
+        {
+            tPack->lvol10 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol11",spack_item)==0)
+        {
+            tPack->lvol11 = atol(stable_item_value);
+        }
+        else if (strcmp("lvol12",spack_item)==0)
+        {
+            tPack->lvol12 = atol(stable_item_value);
+        }
+        else if (strcmp("lcert_code",spack_item)==0)
+        {
+            tPack->lcert_code = atol(stable_item_value);
+        }
+        else if (strcmp("lsafe_level",spack_item)==0)
+        {
+            tPack->lsafe_level = atol(stable_item_value);
+        }
+        else if (strcmp("lsafe_level2",spack_item)==0)
+        {
+            tPack->lsafe_level2 = atol(stable_item_value);
+        }
+        else if (strcmp("lwithdraw_flag",spack_item)==0)
+        {
+            tPack->lwithdraw_flag = atol(stable_item_value);
+        }
+        else if (strcmp("lbank_acc_type",spack_item)==0)
+        {
+            tPack->lbank_acc_type = atol(stable_item_value);
+        }
+        else if (strcmp("lbank_acc_type2",spack_item)==0)
+        {
+            tPack->lbank_acc_type2 = atol(stable_item_value);
+        }
+        else if (strcmp("lserial0",spack_item)==0)
+        {
+            tPack->lserial0 = atol(stable_item_value);
+        }
+        else if (strcmp("lserial1",spack_item)==0)
+        {
+            tPack->lserial0 = atol(stable_item_value);
+        }
+        else
+        {
+            *piRetCode = 6025;
+            sprintf(omsg,"cpack字段不合法[%s],填充出错！",spack_item);
+            return FALSE;
+        }
+        break;
+    default:
+        *piRetCode = 6025;
+        sprintf(omsg,"cpack字段不合法[%s],填充出错！",spack_item);
+        return FALSE;
+        //break;
+    }
+    return TRUE;
+}

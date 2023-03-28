@@ -1,0 +1,132 @@
+/* ----------------------------------------------------------
+ * 程序名称：p888002.sqc
+ * 创建日期：2020-09-29
+ * 程序作者：周伟
+ * 版本信息：3.21.5.2-p2
+ * 程序功能：HOTS业务应答类请求主体
+ * ----------------------------------------------------------*/
+
+
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888002(LPVOID handle,int iRequest,ST_PACK *reqPack,int *piRetCode,char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char   mi_sglobal_serial[256] = { 0 };
+        char   mi_srequest_msg[256]   = { 0 };
+
+        char   mt_sbranch_code[4]     = { 0 };
+        char   mt_scust_no[11]        = { 0 };
+        char   mt_ssystem_no[5]       = { 0 };
+        sqlint32 mt_isource_id        = 0;
+        char   mt_sbusiness_type[5]   = { 0 };
+        char   mt_soccur_date[9]      = { 0 };
+        char   mt_soccur_time[9]      = { 0 };
+        double mt_doccur_bal          = 0.0;
+        double mt_doccur_vol          = 0.0;
+        char   mt_sholder_acc_no[16]  = { 0 };
+        char   mt_smarket_code[2]     = { 0 };
+        char   mt_ssec_code[9]        = { 0 };
+        char   mt_sserial_no[13]      = { 0 };
+        char   mt_stxcode[7]          = { 0 };
+        char   mt_serror_code[7]      = { 0 };
+        char   mt_serror_msg[256]     = { 0 };
+
+        sqlint32 mt_icount            = 0;
+    EXEC SQL END DECLARE SECTION;
+
+    char ssource_id[10] = { 0 };
+    char soccur_bal[19] = { 0 };
+    char soccur_vol[21] = { 0 };
+    int  irequest       = 0;
+    BOOL bRet           = TRUE;
+
+    ksstrncpy(mi_sglobal_serial, reqPack->vsvarstr0, sizeof(mi_sglobal_serial));
+    ksstrncpy(mi_srequest_msg, reqPack->vsvarstr1, sizeof(mi_srequest_msg));
+    trim(mi_sglobal_serial);
+    trim(mi_srequest_msg);
+
+    EXEC SQL SELECT COUNT(1) INTO :mt_icount
+        FROM KS.HOTS_REQUEST
+        WHERE GLOBAL_SERIAL = :mi_sglobal_serial
+        WITH UR;
+    if(SQLCODE != 0)
+    {
+        ERR_DEAL("查询请求表出错", 9714);
+        return FALSE;
+    }
+
+    if (mt_icount != 0)
+    {
+        sprintf(omsg,"请求[%s]已发起", mi_sglobal_serial);
+        ERR_DEAL(omsg, 9715);
+        return FALSE; 
+    }
+
+    GetSpListStr(mi_srequest_msg, 0, mt_stxcode, sizeof(mt_stxcode), '|');
+    GetSpListStr(mi_srequest_msg, 1, mt_sbranch_code, sizeof(mt_sbranch_code), '|');
+    GetSpListStr(mi_srequest_msg, 2, mt_scust_no, sizeof(mt_scust_no), '|');
+    GetSpListStr(mi_srequest_msg, 3, mt_ssystem_no, sizeof(mt_ssystem_no), '|');
+    GetSpListStr(mi_srequest_msg, 4, ssource_id, sizeof(ssource_id), '|');
+    GetSpListStr(mi_srequest_msg, 5, mt_sbusiness_type, sizeof(mt_sbusiness_type), '|');
+    GetSpListStr(mi_srequest_msg, 6, mt_soccur_date, sizeof(mt_soccur_date), '|');
+    GetSpListStr(mi_srequest_msg, 7, mt_soccur_time, sizeof(mt_soccur_time), '|');
+    GetSpListStr(mi_srequest_msg, 8, soccur_bal, sizeof(soccur_bal), '|');
+    GetSpListStr(mi_srequest_msg, 9, soccur_vol, sizeof(soccur_vol), '|');
+    GetSpListStr(mi_srequest_msg, 10, mt_sholder_acc_no, sizeof(mt_sholder_acc_no), '|');
+    GetSpListStr(mi_srequest_msg, 11, mt_smarket_code, sizeof(mt_smarket_code), '|');
+    GetSpListStr(mi_srequest_msg, 12, mt_ssec_code, sizeof(mt_ssec_code), '|');
+    GetSpListStr(mi_srequest_msg, 13, mt_sserial_no, sizeof(mt_sserial_no), '|');
+
+    irequest = atoi(mt_stxcode);
+    mt_isource_id = atoi(ssource_id);
+    mt_doccur_bal = strtod(soccur_bal, NULL);
+    mt_doccur_vol = strtod(soccur_vol, NULL);
+
+    EXEC SQL INSERT INTO KS.HOTS_REQUEST
+        (
+            GLOBAL_SERIAL, BUS_DRIECTION, BRANCH_CODE, CUST_NO, SYSTEM_NO,
+            SOURCE_ID, BUSINESS_TYPE, OCCUR_DATE, OCCUR_TIME, OCCUR_BAL,
+            OCCUR_VOL, HOLDER_ACC_NO, MARKET_CODE, SEC_CODE, SERIAL_NO,
+            TXCODE, ERROR_CODE, ERROR_MSG, REQUEST_MSG
+        )
+        VALUES
+        (
+            :mi_sglobal_serial,'1',:mt_sbranch_code,:mt_scust_no,:mt_ssystem_no,
+            :mt_isource_id,:mt_sbusiness_type,:mt_soccur_date,:mt_soccur_time,:mt_doccur_bal,
+            :mt_doccur_vol,:mt_sholder_acc_no,:mt_smarket_code,:mt_ssec_code,:mt_sserial_no,
+            :mt_stxcode,'00000','',:mi_srequest_msg
+        );
+    if(SQLCODE != 0)
+    {
+        ERR_DEAL("向HOTS请求表插入记录错误", 9716);
+        return FALSE;
+    }
+
+    Commit();
+
+    if (InDoProcessPack(handle, irequest, reqPack, piRetCode, omsg) == 0)
+    {
+        RollBack();
+        snprintf(mt_serror_code, sizeof(mt_serror_code), "%d", *piRetCode);
+        ksstrncpy(mt_serror_msg, omsg, sizeof(mt_serror_msg));
+
+        EXEC SQL UPDATE KS.HOTS_REQUEST
+            SET ERROR_CODE = :mt_serror_code,
+                ERROR_MSG = :mt_serror_msg
+            WHERE GLOBAL_SERIAL = :mi_sglobal_serial;
+        if (SQLCODE != 0)
+        {
+            sprintf(omsg, "处理业务[%d]失败后, 更新请求表[%s]记录失败", irequest, mi_sglobal_serial);
+            ERR_DEAL(omsg, 9717);
+            return FALSE;
+        }
+        Commit();
+
+        return FALSE;
+    }
+
+    return TRUE;
+}

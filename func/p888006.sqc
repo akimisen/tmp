@@ -1,0 +1,252 @@
+/* ----------------------------------------------------------
+ * 程序名称：p888006.sqc
+ * 创建日期：2020-11-07
+ * 程序作者：周伟
+ * 版本信息：3.21.5.2-p4
+ * 程序功能：HOTS_XY_ENTRUST查询
+ * ----------------------------------------------------------*/
+
+
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888006(LPVOID handle,int iRequest,ST_PACK *reqPack,int *piRetCode,char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char     mi_scust_no[11]                = { 0 };
+        char     mi_sbranch_code[4]             = { 0 };
+        sqlint32 mi_ientrust_date               = 0;
+        char     mi_sglobal_serial[13]          = { 0 };
+        char     mi_scontract_no[11]            = { 0 };
+        char     mi_smarket_code[2]             = { 0 };
+        char     mi_sorder_business_code[5]     = { 0 };
+        char     mi_ssystem_no[5]               = { 0 };
+        char     mi_sstatus[2]                  = { 0 };
+
+        char     mo_sglobal_serial[13]          = { 0 };
+        char     mo_scust_no[11]                = { 0 };
+        char     mo_sbranch_code[4]             = { 0 };
+        char     mo_sholder_acc_no[16]          = { 0 };
+        char     mo_ssec_acc[16]                = { 0 };
+        char     mo_smarket_code[2]             = { 0 };
+        char     mo_sorder_business_code[5]     = { 0 };
+        char     mo_ssec_code[9]                = { 0 };
+        char     mo_sentrust_method[2]          = { 0 };
+        double   mo_dentrust_price               = 0.0;
+        double   mo_dentrust_vol                 = 0.0;
+        sqlint32 mo_ir_date                     = 0;
+        sqlint32 mo_ientrust_date               = 0;
+        sqlint32 mo_ientrust_time               = 0;
+        char     mo_scontract_no[11]            = { 0 };
+        char     mo_sexternal_cntrct_no[11]     = { 0 };
+        char     mo_sreport_stat[2]             = { 0 };
+        char     mo_sreport_seat[9]             = { 0 };
+        char     mo_srpt_emp_code[7]            = { 0 };
+        sqlint32 mo_irpt_time                   = 0;
+        sqlint32 mo_irpt_date                   = 0;
+        double   mo_ddone_amt                   = 0.0;
+        double   mo_ddone_vol                   = 0.0;
+        double   mo_dfrozen_amt                 = 0.0;
+        char     mo_sentrust_source[21]         = { 0 };
+        char     mo_sorder_source[61]           = { 0 };
+        char     mo_srpt_contract[11]           = { 0 };
+        char     mo_snote[81]                   = { 0 };
+        char     mo_sentrust_status[2]          = { 0 };
+        char     mo_soptrd_unit[9]              = { 0 };
+        char     mo_sdeal_no[13]                = { 0 };
+        char     mo_strade_sign[13]             = { 0 };
+        char     mo_sevaluate_result[81]        = { 0 };
+        char     mo_sentrust_flag[2]            = { 0 };
+        sqlint32 mo_idone_counts                = 0;
+        double   mo_dsingle_totoal_fee          = 0.0;
+        double   mo_dother_fee                  = 0.0;
+        sqlint32 mo_ibatch_no                   = 0;
+        char     mo_sexchange_err_code[7]       = { 0 };
+        double   mo_drpt_vol                    = 0.0;
+        char     mo_scurrency_type[3]           = { 0 };
+        char     mo_ssec_short_name[41]         = { 0 };
+        double   mo_ddone_price                 = 0.0;
+        double   mo_dnet_amt                    = 0.0;
+        char     mo_ssettlement_code[4]         = { 0 };
+        char     mo_slast_wth_rpt_cntrct_no[11] = { 0 };
+        char     mo_sentrust_timestamp[27]      = { 0 };
+        double   mo_dcommission_rate            = 0.0;
+        double   mo_dmin_commission             = 0.0;
+        double   mo_detf_left_chg               = 0.0;
+        double   mo_dcur_buy_etf_left_chg       = 0.0;
+        char     mo_soccur_branch_code[4]       = { 0 };
+        char     mo_ssoc_no[5]                  = { 0 };
+        char     mo_ssystem_no[5]               = { 0 };
+        char     mo_sstatus[2]                  = { 0 };
+        char     mo_serr_msg[256]               = { 0 };
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;
+    ST_PACK rpack = { 0 };
+    SetCol(handle, F_SSERIAL2, F_SCUST_NO, F_SBRANCH_CODE0, F_SHOLDER_AC_NO,
+             F_SHOLDER_AC_NO2, F_SMARKET_CODE, F_SPOST_CODE, F_SSTOCK_CODE, F_SSTATUS2,
+             F_DAMT0, F_DAMT1, F_LVOL0, F_LVOL1, F_LVOL2, F_SORDER0, F_SORDER1, F_SSTATUS1,
+             F_SEMP_NO2, F_SEMP_NO, F_LVOL3, F_LVOL4, F_DAMT2, F_DAMT3, F_DAMT4, F_SNAME2,
+             F_SEMAIL, F_SORDER2, F_SNOTE, F_SSTATUS4, F_SSTOCK_CODE2, F_SSERIAL3, F_SSERIAL4,
+             F_SNOTE2, F_SSTATUS3, F_LVOL5, F_DAMT5, F_DAMT6, F_LVOL6, F_SROOM_NO, F_DAMT7,
+             F_SCURRENCY_TYPE, F_SBANK_ACC2, F_DAMT8, F_DAMT9, F_SROOM_NO2, F_SCUST_NO2,
+             F_SPHONE2, F_DAMT10, F_DAMT11, F_DAMT12, F_DAMT13, F_SBRANCH_CODE1, F_SSERIAL1,
+             F_SSTATUS0, F_SSERIAL0, F_VSMESS, 0);
+
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    ksstrncpy(mi_sbranch_code, reqPack->sbranch_code0, sizeof(mi_sbranch_code));
+    mi_ientrust_date = reqPack->lvol1;
+    ksstrncpy(mi_sglobal_serial, reqPack->sserial2, sizeof(mi_sglobal_serial));
+    ksstrncpy(mi_scontract_no, reqPack->sorder0, sizeof(mi_scontract_no));
+    ksstrncpy(mi_smarket_code, reqPack->smarket_code, sizeof(mi_smarket_code));
+    ksstrncpy(mi_sorder_business_code, reqPack->spost_code, sizeof(mi_sorder_business_code));
+    ksstrncpy(mi_ssystem_no, reqPack->sserial0, sizeof(mi_ssystem_no));
+    ksstrncpy(mi_sstatus, reqPack->sstatus0, sizeof(mi_sstatus));
+    trim(mi_scust_no);
+    trim(mi_sbranch_code);
+    trim(mi_sglobal_serial);
+    trim(mi_scontract_no);
+    trim(mi_smarket_code);
+    trim(mi_sorder_business_code);
+    trim(mi_ssystem_no);
+    trim(mi_sstatus);
+
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT  GLOBAL_SERIAL,CUST_NO,BRANCH_CODE,HOLDER_ACC_NO,SEC_ACC,MARKET_CODE,
+                ORDER_BUSINESS_CODE,SEC_CODE,ENTRUST_METHOD,ENTRUST_PRICE,ENTRUST_VOL,
+                R_DATE,ENTRUST_DATE,ENTRUST_TIME,CONTRACT_NO,EXTERNAL_CNTRCT_NO,REPORT_STAT,
+                REPORT_SEAT,RPT_EMP_CODE,RPT_TIME,RPT_DATE,DONE_AMT,DONE_VOL,FROZEN_AMT,
+                ENTRUST_SOURCE,ORDER_SOURCE,RPT_CONTRACT,NOTE,ENTRUST_STATUS,OPTRD_UNIT,
+                DEAL_NO,TRADE_SIGN,EVALUATE_RESULT,ENTRUST_FLAG,DONE_COUNTS,SINGLE_TOTOAL_FEE,
+                OTHER_FEE,BATCH_NO,EXCHANGE_ERR_CODE,RPT_VOL,CURRENCY_TYPE,SEC_SHORT_NAME,
+                DONE_PRICE,NET_AMT,SETTLEMENT_CODE,LAST_WTH_RPT_CNTRCT_NO,ENTRUST_TIMESTAMP,
+                COMMISSION_RATE,MIN_COMMISSION,ETF_LEFT_CHG,CUR_BUY_ETF_LEFT_CHG,OCCUR_BRANCH_CODE,
+                SOC_NO,STATUS,SYSTEM_NO,ERR_MSG
+            FROM KS.HOTS_XY_ENTRUST
+        WHERE (:mi_scust_no = '' OR CUST_NO = :mi_scust_no)
+              AND (:mi_sbranch_code = '' OR BRANCH_CODE = :mi_sbranch_code)
+              AND (:mi_ientrust_date = 0 OR ENTRUST_DATE = :mi_ientrust_date)
+              AND (:mi_sglobal_serial = '' OR GLOBAL_SERIAL = :mi_sglobal_serial)
+              AND (:mi_scontract_no = '' OR CONTRACT_NO = :mi_scontract_no)
+              AND (:mi_smarket_code = '' OR MARKET_CODE = :mi_smarket_code)
+              AND (:mi_sorder_business_code = '' OR ORDER_BUSINESS_CODE = :mi_sorder_business_code)
+              AND (:mi_ssystem_no = '' OR SYSTEM_NO = :mi_ssystem_no)
+              AND (:mi_sstatus = '' OR STATUS = :mi_sstatus)
+        ORDER BY GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("打开游标错误",2372);
+        goto L_RETURN;
+    }
+
+    EXEC SQL FETCH C1 INTO
+            :mo_sglobal_serial,:mo_scust_no,:mo_sbranch_code,:mo_sholder_acc_no,:mo_ssec_acc,
+            :mo_smarket_code,:mo_sorder_business_code,:mo_ssec_code,:mo_sentrust_method,:mo_dentrust_price,
+            :mo_dentrust_vol,:mo_ir_date,:mo_ientrust_date,:mo_ientrust_time,:mo_scontract_no,
+            :mo_sexternal_cntrct_no,:mo_sreport_stat,:mo_sreport_seat,:mo_srpt_emp_code,:mo_irpt_time,
+            :mo_irpt_date,:mo_ddone_amt,:mo_ddone_vol,:mo_dfrozen_amt,:mo_sentrust_source,
+            :mo_sorder_source,:mo_srpt_contract,:mo_snote,:mo_sentrust_status,:mo_soptrd_unit,
+            :mo_sdeal_no,:mo_strade_sign,:mo_sevaluate_result,:mo_sentrust_flag,:mo_idone_counts,
+            :mo_dsingle_totoal_fee,:mo_dother_fee,:mo_ibatch_no,:mo_sexchange_err_code,:mo_drpt_vol,
+            :mo_scurrency_type,:mo_ssec_short_name,:mo_ddone_price,:mo_dnet_amt,:mo_ssettlement_code,
+            :mo_slast_wth_rpt_cntrct_no,:mo_sentrust_timestamp,:mo_dcommission_rate,:mo_dmin_commission,
+            :mo_detf_left_chg,:mo_dcur_buy_etf_left_chg,:mo_soccur_branch_code,:mo_ssoc_no,
+            :mo_sstatus,:mo_ssystem_no,:mo_serr_msg;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("从游标中获取HOTS_XY_ENTRUST表数据错误",9758); // 错误码需要申请
+        goto L_RETURN;
+    }
+    while (SQLCODE == 0)
+    {
+        // 将流水数据打包
+        ksstrncpy(rpack.sserial2, mo_sglobal_serial, sizeof(rpack.sserial2));
+        ksstrncpy(rpack.scust_no, mo_scust_no, sizeof(rpack.scust_no));
+        ksstrncpy(rpack.sbranch_code0, mo_sbranch_code, sizeof(rpack.sbranch_code0));
+        ksstrncpy(rpack.sholder_ac_no, mo_sholder_acc_no, sizeof(rpack.sholder_ac_no));
+        ksstrncpy(rpack.sholder_ac_no2, mo_ssec_acc, sizeof(rpack.sholder_ac_no2));
+        ksstrncpy(rpack.smarket_code, mo_smarket_code, sizeof(rpack.smarket_code));
+        ksstrncpy(rpack.spost_code, mo_sorder_business_code, sizeof(rpack.spost_code));
+        ksstrncpy(rpack.sstock_code, mo_ssec_code, sizeof(rpack.sstock_code));
+        ksstrncpy(rpack.sstatus2, mo_sentrust_method, sizeof(rpack.sstatus2));
+        rpack.damt0 = mo_dentrust_price;
+        rpack.damt1 = mo_dentrust_vol;
+        rpack.lvol0 = mo_ir_date;
+        rpack.lvol1 = mo_ientrust_date;
+        rpack.lvol2 = mo_ientrust_time;
+        ksstrncpy(rpack.sorder0, mo_scontract_no, sizeof(rpack.sorder0));
+        ksstrncpy(rpack.sorder1, mo_sexternal_cntrct_no, sizeof(rpack.sorder1));
+        ksstrncpy(rpack.sstatus1, mo_sreport_stat, sizeof(rpack.sstatus1));
+        ksstrncpy(rpack.semp_no2, mo_sreport_seat, sizeof(rpack.semp_no2));
+        ksstrncpy(rpack.semp_no, mo_srpt_emp_code, sizeof(rpack.semp_no));
+        rpack.lvol3 = mo_irpt_time;
+        rpack.lvol4 = mo_irpt_date;
+        rpack.damt2 = mo_ddone_amt;
+        rpack.damt3 = mo_ddone_vol;
+        rpack.damt4 = mo_dfrozen_amt;
+        ksstrncpy(rpack.sname2, mo_sentrust_source, sizeof(rpack.sname2));
+        ksstrncpy(rpack.semail, mo_sorder_source, sizeof(rpack.semail));
+        ksstrncpy(rpack.sorder2, mo_srpt_contract, sizeof(rpack.sorder2));
+        ksstrncpy(rpack.snote, mo_snote, sizeof(rpack.snote));
+        ksstrncpy(rpack.sstatus4, mo_sentrust_status, sizeof(rpack.sstatus4));
+        ksstrncpy(rpack.sstock_code2, mo_soptrd_unit, sizeof(rpack.sstock_code2));
+        ksstrncpy(rpack.sserial3, mo_sdeal_no, sizeof(rpack.sserial3));
+        ksstrncpy(rpack.sserial4, mo_strade_sign, sizeof(rpack.sserial4));
+        ksstrncpy(rpack.snote2, mo_sevaluate_result, sizeof(rpack.snote2));
+        ksstrncpy(rpack.sstatus3, mo_sentrust_flag, sizeof(rpack.sstatus3));
+        rpack.lvol5 = mo_idone_counts;
+        rpack.damt5 = mo_dsingle_totoal_fee;
+        rpack.damt6 = mo_dother_fee;
+        rpack.lvol6 = mo_ibatch_no;
+        ksstrncpy(rpack.sroom_no, mo_sexchange_err_code, sizeof(rpack.sroom_no));
+        rpack.damt7 = mo_drpt_vol;
+        ksstrncpy(rpack.scurrency_type, mo_scurrency_type, sizeof(rpack.scurrency_type));
+        ksstrncpy(rpack.sbank_acc2, mo_ssec_short_name, sizeof(rpack.sbank_acc2));
+        rpack.damt8 = mo_ddone_price;
+        rpack.damt9 = mo_dnet_amt;
+        ksstrncpy(rpack.sroom_no2, mo_ssettlement_code, sizeof(rpack.sroom_no2));
+        ksstrncpy(rpack.scust_no2, mo_slast_wth_rpt_cntrct_no, sizeof(rpack.scust_no2));
+        ksstrncpy(rpack.sphone2, mo_sentrust_timestamp, sizeof(rpack.sphone2));
+        rpack.damt10 = mo_dcommission_rate;
+        rpack.damt11 = mo_dmin_commission;
+        rpack.damt12 = mo_detf_left_chg;
+        rpack.damt13 = mo_dcur_buy_etf_left_chg;
+        ksstrncpy(rpack.sbranch_code1, mo_soccur_branch_code, sizeof(rpack.sbranch_code1));
+        ksstrncpy(rpack.sserial1, mo_ssoc_no, sizeof(rpack.sserial1));
+        ksstrncpy(rpack.sstatus0, mo_ssystem_no, sizeof(rpack.sstatus0));
+        ksstrncpy(rpack.sserial0, mo_sstatus, sizeof(rpack.sserial0));
+        ksstrncpy(rpack.vsmess, mo_serr_msg, sizeof(rpack.vsmess));
+
+        bRet = PutRow(handle, &rpack, piRetCode, omsg);
+        if (bRet == FALSE)
+        {
+            ERR_DEAL("PUTROW失败",4405);
+            break;
+        }
+
+        EXEC SQL FETCH C1 INTO
+            :mo_sglobal_serial,:mo_scust_no,:mo_sbranch_code,:mo_sholder_acc_no,:mo_ssec_acc,
+            :mo_smarket_code,:mo_sorder_business_code,:mo_ssec_code,:mo_sentrust_method,:mo_dentrust_price,
+            :mo_dentrust_vol,:mo_ir_date,:mo_ientrust_date,:mo_ientrust_time,:mo_scontract_no,
+            :mo_sexternal_cntrct_no,:mo_sreport_stat,:mo_sreport_seat,:mo_srpt_emp_code,:mo_irpt_time,
+            :mo_irpt_date,:mo_ddone_amt,:mo_ddone_vol,:mo_dfrozen_amt,:mo_sentrust_source,
+            :mo_sorder_source,:mo_srpt_contract,:mo_snote,:mo_sentrust_status,:mo_soptrd_unit,
+            :mo_sdeal_no,:mo_strade_sign,:mo_sevaluate_result,:mo_sentrust_flag,:mo_idone_counts,
+            :mo_dsingle_totoal_fee,:mo_dother_fee,:mo_ibatch_no,:mo_sexchange_err_code,:mo_drpt_vol,
+            :mo_scurrency_type,:mo_ssec_short_name,:mo_ddone_price,:mo_dnet_amt,:mo_ssettlement_code,
+            :mo_slast_wth_rpt_cntrct_no,:mo_sentrust_timestamp,:mo_dcommission_rate,:mo_dmin_commission,
+            :mo_detf_left_chg,:mo_dcur_buy_etf_left_chg,:mo_soccur_branch_code,:mo_ssoc_no,
+            :mo_sstatus,:mo_ssystem_no,:mo_serr_msg;
+        if(SQLCODE && SQLCODE != NOTFOUND)
+        {
+            ERR_DEAL("从游标中获取HOTS_XY_ENTRUST表数据错误",9758);
+            goto L_RETURN;
+        }
+    }
+L_RETURN:
+    EXEC SQL CLOSE C1;
+    return bRet;
+}

@@ -1,0 +1,363 @@
+# ------------------------------------------------------------
+# 修改日期: 2021-03-04
+# 修改人员: 李向东
+# 修改描述: hotsbu增加配置支持p888018、p888019、p421408编译
+# 备注信息: SECRZRQ-9174
+# 版本信息: 3.22.1.0
+# 专题信息: 【20210303】SECREQ-13212 HOTSBU支持推送非交易设置信息
+# ------------------------------------------------------------
+# 修改日期: 2021-12-14
+# 修改人员: 邓炜
+# 修改描述: hotsbu增加配置支持121140编译
+# 备注信息: SECRZRQ-10764
+# 版本信息: 3.22.1.0
+# 专题信息: SECREQ-14966【海通】【融资融券】HOTSBU支持新股中签预冻结资金解冻
+# ------------------------------------------------------------
+# 修改日期: 2022-02-24
+# 修改人员: 邓炜
+# 修改描述: hotsbu增加配置支持p421409的编译
+# 备注信息: SECRZRQ-11121
+# 版本信息: 3.22.1.0
+# 专题信息: SECREQ-15255【海通】【融资融券】支持两地客户调拨保证金 
+# -------------------------------------------------------------- 
+
+#include ./setting.include
+#include ../../make/define.include
+
+#---------------------------------------------------------------------
+# func 目录
+#---------------------------------------------------------------------
+HFUNCLIST_WITH_DEFAULT := \
+p888000 \
+p888001 \
+p888002 \
+p888003 \
+p888004 \
+p888005 \
+p888006 \
+p888007 \
+p888008 \
+p888009 \
+p888018 \
+p888019 \
+p421400 \
+p421401 \
+p421402 \
+p421403 \
+p421408 \
+p421409
+
+HFUNCLIST_WITH_UR := \
+
+#HTXCODE_OBJ_C :=
+
+#HTXCODE_OBJ_CPP :=
+
+HTXCODE_OBJ_PREP_DEFAULT := $(patsubst %,%.o,$(HFUNCLIST_WITH_DEFAULT))
+
+HTXCODE_OBJ_PREP_UR := $(patsubst %,%.o,$(HFUNCLIST_WITH_UR))
+
+HTXCODE_OBJ_PREP := $(HTXCODE_OBJ_PREP_DEFAULT) $(HTXCODE_OBJ_PREP_UR)
+
+#HTXCODE_OBJ_BND :=
+
+TARGETFILE_HTXLIB := \
+libhtxcode_p4.a \
+libhtxcode_p8.a \
+
+libhtxcode_c := \
+
+libhtxcode_prep := \
+$(patsubst %,%.o,$(HFUNCLIST_WITH_DEFAULT)) \
+$(patsubst %,%.o,$(HFUNCLIST_WITH_UR))
+
+libhtxcode_p8.a_c := $(filter p8%,$(libhtxcode_c))
+libhtxcode_p4.a_c := $(filter p4%,$(libhtxcode_c))
+
+libhtxcode_p8.a_prep := $(filter p8%,$(libhtxcode_prep))
+libhtxcode_p4.a_prep := $(filter p4%,$(libhtxcode_prep))
+
+HTXLIB_OBJ_C := \
+$(libhtxcode_p8.a_c) \
+$(libhtxcode_p4.a_c) \
+
+
+#---------------------------------------------------------------------
+# txcode 目录
+#---------------------------------------------------------------------
+
+MFUNCLIST_WITH_DEFAULT := \
+p121140 \
+p423135 \
+p423156
+
+MFUNCLIST_WITH_UR := \
+
+#MTXCODE_OBJ_C :=
+
+#MTXCODE_OBJ_CPP :=
+
+MTXCODE_OBJ_PREP_DEFAULT := $(patsubst %,%.o,$(MFUNCLIST_WITH_DEFAULT))
+
+MTXCODE_OBJ_PREP_UR := $(patsubst %,%.o,$(MFUNCLIST_WITH_UR))
+
+MTXCODE_OBJ_PREP := $(MTXCODE_OBJ_PREP_DEFAULT) $(MTXCODE_OBJ_PREP_UR)
+
+#MTXCODE_OBJ_BND := 
+
+TARGETFILE_MTXLIB := \
+libmtxcode_p4.a \
+
+libmtxcode_c := \
+
+libmtxcode_prep := \
+$(patsubst %,%.o,$(MFUNCLIST_WITH_DEFAULT)) \
+$(patsubst %,%.o,$(MFUNCLIST_WITH_UR))
+
+libmtxcode_p4.a_c := $(filter p4%,$(libmtxcode_c))
+
+libmtxcode_p4.a_prep := $(filter p4% p121140.o,$(libmtxcode_prep))
+
+MTXLIB_OBJ_C := \
+$(libmtxcode_p4.a_c) \
+
+#---------------------------------------------------------------------
+# bcc的区间
+#---------------------------------------------------------------------
+
+TARGETFILE_HOTS := \
+pushbu \
+transbu
+
+TARGETFILE_HBUPUB := \
+libhbupubs.a
+
+#---------------------------------------------------------------------
+# bupub 目录
+#---------------------------------------------------------------------
+libhbupubs.a_c := \
+cpack.o
+
+libhbupubs.a_cpp := \
+BUSem.o \
+BUShm.o \
+MemQueue.o \
+MsgQueue.o \
+bupub.o \
+bdefine.o \
+logfile.o \
+mypub.o \
+profile.o \
+slist.o \
+stdafx.o \
+svrlink.o \
+tcp.o
+
+HBUPUB_OBJ_C := $(libhbupubs.a_c)
+
+HBUPUB_OBJ_CPP := $(libhbupubs.a_cpp)
+
+#---------------------------------------------------------------------
+# hots 目录
+#---------------------------------------------------------------------
+pushbu_cpp := \
+pushbu.o \
+hotspub.o 
+
+transbu_cpp := \
+transbu.o \
+hotspub.o 
+
+pushbu_prep := \
+hbusqc.o 
+
+transbu_prep := $(pushbu_prep)
+
+pushbu_depend := \
+$(HLIB_DIR)/libbasec.$(EXTEND) \
+$(HLIB_DIR)/libhbupubs.a \
+$(HLIB_DIR)/libcmf.$(EXTEND) \
+$(HLIB_DIR)/libssmt.a \
+$(addprefix $(HLIB_DIR)/, $(TARGETFILE_HTXLIB)) \
+$(addprefix $(HLIB_DIR)/, $(TARGETFILE_MTXLIB)) 
+
+transbu_depend := $(pushbu_depend)
+
+HOTS_OBJ_CPP := $(pushbu_cpp) $(transbu_cpp)
+
+HOTS_OBJ_PREP := $(pushbu_prep)
+
+HOTS_LIB := $(HTXCODE_LIB) $(MTXCODE_LIB)
+
+#---------------------------------------------------------------------
+# 展开LinkBin
+#---------------------------------------------------------------------
+$(foreach bin_file,$(TARGETFILE_HTXCODE),\
+	$(eval $(call LinkBin,$(bin_file),$(BINTARGET_HOTS),$(HTXCODE_DIR),$(HTXCODE_LIB),$(TXCODE_ENVIROMENT_SET))))
+
+$(foreach bin_file,$(TARGETFILE_MTXCODE),\
+	$(eval $(call LinkBin,$(bin_file),$(BINTARGET_HOTS),$(MTXCODE_DIR),$(MTXCODE_LIB),$(TXCODE_ENVIROMENT_SET))))
+
+$(foreach bin_file,$(TARGETFILE_HOTS),\
+	$(eval $(call LinkBin,$(bin_file),$(BINTARGET_HOTS),$(HOTS_DIR), $(HOTS_LIB), )))
+
+#---------------------------------------------------------------------
+# 展开LinkArStd
+#---------------------------------------------------------------------
+$(foreach bin_file,$(TARGETFILE_HBUPUB),\
+	$(eval $(call LinkArStd,$(bin_file),$(HLIB_DIR),$(HBUPUB_DIR), )))
+
+$(foreach bin_file,$(TARGETFILE_HTXLIB),\
+	$(eval $(call LinkArStd,$(bin_file),$(HLIB_DIR),$(HTXCODE_DIR), )))
+
+$(foreach bin_file,$(TARGETFILE_MTXLIB),\
+	$(eval $(call LinkArStd,$(bin_file),$(HLIB_DIR),$(MTXCODE_DIR), )))
+
+#---------------------------------------------------------------------
+# 展开CompileStdC
+#---------------------------------------------------------------------
+$(foreach obj_file,$(HTXCODE_OBJ_C),\
+	$(eval $(call CompileStdC,$(obj_file),$(HTXCODE_DIR),$(HTXCODE_DIR),$(HTXCODE_INCLD),$(HTXCODE_FLAG))))
+
+$(foreach obj_file,$(MTXCODE_OBJ_C),\
+	$(eval $(call CompileStdC,$(obj_file),$(MTXCODE_DIR),$(MTXCODE_DIR),$(MTXCODE_INCLD),$(MTXCODE_FLAG))))
+
+$(foreach obj_file,$(HOTS_OBJ_C),\
+	$(eval $(call CompileStdC,$(obj_file),$(HOTS_DIR),$(HOTS_DIR),$(HOTS_INCLD),$(HOTS_FLAG))))
+
+$(foreach obj_file,$(HTXLIB_OBJ_C),\
+	$(eval $(call CompileStdC,$(obj_file),$(HTXCODE_DIR),$(HTXCODE_DIR),$(HTXCODE_INCLD),$(HTXCODE_FLAG))))
+
+#---------------------------------------------------------------------
+# 展开CompileStdCPP
+#---------------------------------------------------------------------
+$(foreach obj_file,$(HTXCODE_OBJ_CPP),\
+	$(eval $(call CompileStdCPP,$(obj_file),$(HTXCODE_DIR),$(HTXCODE_DIR),$(HTXCODE_INCLD),$(HTXCODE_FLAG))))
+
+$(foreach obj_file,$(MTXCODE_OBJ_CPP),\
+	$(eval $(call CompileStdCPP,$(obj_file),$(MTXCODE_DIR),$(MTXCODE_DIR),$(MTXCODE_INCLD),$(MTXCODE_FLAG))))
+
+$(foreach obj_file,$(HOTS_OBJ_CPP),\
+	$(eval $(call CompileStdCPP,$(obj_file),$(HOTS_DIR),$(HOTS_DIR),$(HOTS_INCLD),$(HOTS_FLAG))))
+
+#---------------------------------------------------------------------
+# 展开CompileFORCECPP
+#---------------------------------------------------------------------
+$(foreach obj_file,$(HBUPUB_OBJ_CPP),\
+	$(eval $(call CompileFORCECPP,$(obj_file),$(HBUPUB_DIR),$(HBUPUB_DIR),$(HBUPUB_INCLD),$(HBUPUB_FLAG))))
+
+#---------------------------------------------------------------------
+# 展开CompileFORCEC
+#---------------------------------------------------------------------
+$(foreach obj_file,$(HBUPUB_OBJ_C),\
+	$(eval $(call CompileFORCEC,$(obj_file),$(HBUPUB_DIR),$(HBUPUB_DIR),$(HBUPUB_INCLD),$(HBUPUB_FLAG))))
+
+#---------------------------------------------------------------------
+# 展开CompileStdPrep
+#---------------------------------------------------------------------
+$(foreach obj_file,$(HTXCODE_OBJ_PREP_DEFAULT),\
+	$(eval $(call CompileStdPrep,$(obj_file),$(HTXCODE_DIR),$(HTXCODE_DIR),$(HTXCODE_DIR),$(HTXCODE_INCLD),$(HTXCODE_FLAG))))
+
+$(foreach obj_file,$(MTXCODE_OBJ_PREP_DEFAULT),\
+	$(eval $(call CompileStdPrep,$(obj_file),$(MTXCODE_DIR),$(MTXCODE_DIR),$(MTXCODE_DIR),$(MTXCODE_INCLD),$(MTXCODE_FLAG))))
+
+$(foreach obj_file,$(HBUPUB_OBJ_PREP),\
+	$(eval $(call CompileStdPrep,$(obj_file),$(HBUPUB_DIR),$(HBUPUB_DIR),$(HBUPUB_DIR),$(HBUPUB_INCLD),$(HBUPUB_FLAG))))
+
+$(foreach obj_file,$(HOTS_OBJ_PREP),\
+	$(eval $(call CompileStdPrep,$(obj_file),$(HOTS_DIR),$(HOTS_DIR),$(HOTS_DIR),$(HOTS_INCLD),$(HOTS_FLAG))))
+
+#---------------------------------------------------------------------
+# 展开CompileStdPrepWithUR
+#---------------------------------------------------------------------
+$(foreach obj_file,$(HTXCODE_OBJ_PREP_UR),\
+	$(eval $(call CompileStdPrepWithUR,$(obj_file),$(HTXCODE_DIR),$(HTXCODE_DIR),$(HTXCODE_DIR),$(HTXCODE_INCLD),$(HTXCODE_FLAG))))
+
+$(foreach obj_file,$(MTXCODE_OBJ_PREP_UR),\
+	$(eval $(call CompileStdPrepWithUR,$(obj_file),$(MTXCODE_DIR),$(MTXCODE_DIR),$(MTXCODE_DIR),$(MTXCODE_INCLD),$(MTXCODE_FLAG))))
+
+#---------------------------------------------------------------------
+# 定义每一个Make和Clean
+# 注意：所有的Make得到的中间文件和目标文件都要在Clean中清除
+# Clean中的每行指令需要在之前加上"-",以确保rm失败不会导致clean的终止
+#---------------------------------------------------------------------
+.PHONY : connect disconnect CopyLib MakeHotsTxcode MakeMainTxcode MakeHotsBupub\
+		 MakeHots CleanHotsTxcode CleanMainTxcode CleanHotsBupub CleanHots MakeAllHots CleanAllHots
+
+
+ifeq ($(findstring AIX,$(system_type)),AIX)
+
+MakeAllHots : connect MakeHotsBupub MakeHotsTxcode MakeMainTxcode CopyLib MakeHots disconnect
+CleanAllHots : CleanHotsBupub CleanHots CleanHotsTxcode CleanMainTxcode
+
+else
+
+MakeAllHots : connect MakeHotsBupub MakeHotsTxcode MakeMainTxcode CopyLib MakeHots disconnect
+CleanAllHots : CleanHotsBupub CleanHots CleanHotsTxcode CleanMainTxcode
+
+endif
+
+MakeHotsTxcode : $(TARGETFILE_HTXCODE:%=$(BINTARGET_HOTS)/%)
+
+CleanHotsTxcode :
+	-cd $(BINTARGET_HOTS);rm -f $(TARGETFILE_HTXCODE)
+	-cd $(HTXCODE_DIR);rm -f $(HTXCODE_OBJ_C) $(HTXCODE_OBJ_CPP) $(HTXCODE_OBJ_PREP)
+	-cd $(HTXCODE_DIR);rm -f $(patsubst %.o,%.c,$(HTXCODE_OBJ_PREP))
+	-cd $(HTXCODE_DIR);rm -f $(patsubst %.o,%.bnd,$(HTXCODE_OBJ_PREP))
+#	-cd $(HTXCODE_DIR);rm -f $(patsubst %,%.bnd,$(HTXCODE_OBJ_BND))
+	-cd $(HTXCODE_DIR);rm -f *.gcno
+	-cd $(HTXCODE_DIR);rm -f *.gcda
+
+MakeMainTxcode : $(TARGETFILE_MTXCODE:%=$(BINTARGET_HOTS)/%)
+
+CleanMainTxcode :
+	-cd $(BINTARGET_HOTS);rm -f $(TARGETFILE_MTXCODE)
+	-cd $(MTXCODE_DIR);rm -f $(MTXCODE_OBJ_C) $(MTXCODE_OBJ_CPP) $(MTXCODE_OBJ_PREP)
+	-cd $(MTXCODE_DIR);rm -f $(patsubst %.o,%.c,$(MTXCODE_OBJ_PREP))
+	-cd $(MTXCODE_DIR);rm -f $(patsubst %.o,%.bnd,$(MTXCODE_OBJ_PREP))
+#	-cd $(MTXCODE_DIR);rm -f $(patsubst %,%.bnd,$(MTXCODE_OBJ_BND))
+	-cd $(MTXCODE_DIR);rm -f *.gcno
+	-cd $(MTXCODE_DIR);rm -f *.gcda
+
+MakeHotsBupub : $(TARGETFILE_HBUPUB:%=$(HLIB_DIR)/%)
+
+CleanHotsBupub :
+	-cd $(HLIB_DIR); rm -f $(TARGETFILE_HBUPUB)
+	-cd $(HBUPUB_DIR);rm -f $(HBUPUB_OBJ_C) $(HBUPUB_OBJ_CPP) $(HBUPUB_OBJ_PREP)
+	-cd $(HBUPUB_DIR);rm -f $(patsubst %.o,%.c,$(HBUPUB_OBJ_PREP))
+	-cd $(HBUPUB_DIR);rm -f $(patsubst %.o,%.bnd,$(HBUPUB_OBJ_PREP))
+#	-cd $(HBUPUB_DIR);rm -f $(patsubst %,%.bnd,$(BUPUB_OBJ_BND))
+	-cd $(HBUPUB_DIR);rm -f $(patsubst %.o,%.gcno,$(HBUPUB_OBJ_C))
+	-cd $(HBUPUB_DIR);rm -f $(patsubst %.o,%.gcno,$(HBUPUB_OBJ_CPP))
+	-cd $(HBUPUB_DIR);rm -f $(patsubst %.o,%.gcda,$(HBUPUB_OBJ_C))
+	-cd $(HBUPUB_DIR);rm -f $(patsubst %.o,%.gcda,$(HBUPUB_OBJ_CPP))
+
+MakeHots : $(TARGETFILE_HOTS:%=$(BINTARGET_HOTS)/%)
+
+CleanHots :
+	-cd $(HLIB_DIR); rm -f $(TARGETFILE_HOTS)
+	-cd $(HOTS_DIR);rm -f $(HOTS_OBJ_C) $(HOTS_OBJ_CPP) $(HOTS_OBJ_PREP)
+	-cd $(HOTS_DIR);rm -f $(patsubst %.o,%.c,$(HOTS_OBJ_PREP))
+	-cd $(HOTS_DIR);rm -f $(patsubst %.o,%.bnd,$(HOTS_OBJ_PREP))
+	-cd $(HOTS_DIR);rm -f $(patsubst %.o,%.gcno,$(HOTS_OBJ_CPP))
+	-cd $(HOTS_DIR);rm -f $(patsubst %.o,%.gcno,$(HOTS_OBJ_PREP))
+	-cd $(HOTS_DIR);rm -f $(patsubst %.o,%.gcda,$(HOTS_OBJ_CPP))
+	-cd $(HOTS_DIR);rm -f $(patsubst %.o,%.gcda,$(HOTS_OBJ_PREP))
+
+CopyLib :
+	 cp $(APPDIR)/lib/libbasec.so $(HLIB_DIR)
+	 cp $(APPDIR)/lib/libssmt.a $(HLIB_DIR)
+	 cp $(APPDIR)/lib/libcmf.so $(HLIB_DIR)
+	 cp $(APPDIR)/lib/libkscli.so $(HLIB_DIR)
+
+#---------------------------------------------------------------------
+# connect 的定义
+#---------------------------------------------------------------------
+connect :
+	db2 connect to KSDBS
+
+#---------------------------------------------------------------------
+# disconnect 的定义
+#---------------------------------------------------------------------
+disconnect :
+	db2 connect reset

@@ -1,0 +1,481 @@
+/* ----------------------------------------------------------
+ * 程序名称：p421409.sqc
+ * 创建日期：2022-02-23
+ * 程序作者：邓炜
+ * 版本信息：3.22.1.0
+ * 程序功能：支持两地客户保证金调拨
+ * 专题信息: SECREQ-15255【海通】【融资融券】支持两地客户调拨保证金
+ * -------------------------------------------------------------------*/
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F421409(LPVOID handle, int iRequest, ST_PACK *reqPack, int *piRetCode, char *omsg)
+{
+    /*变量声明*/
+    EXEC SQL BEGIN DECLARE SECTION;
+        char mi_vsvarstr0[256] = {0};   //全局流水号
+        char mi_sbranch_code0[4] = {0}; //发生营业部
+        char mi_sserial0[13] = {0}; //流水号
+        char mi_scust_no[11] = {0}; //客户号
+        char mi_sbank_code[7] = {0};    //系统编号
+        double mi_damt0 = 0;  //调拨金额
+        char mi_snote2[81] = {0};  //委托来源1
+        char mi_vsvarstr3[256] = {0};   //委托来源2
+
+        char mt_sown_branch_code[4] = {0};  //客户所属营业部
+        char mt_sname[21] = {0};    //客户名称
+        char mt_sroom_no[4] = {0};   //客户组别
+        char mt_scust_type[3] = {0};    //客户类别
+        char mt_sstat_type[3] = {0};    //总部统计类别
+        char mt_sexternal_no[7] = {0};  //外围号
+
+        char mt_ssystem_status[2] = {0};    //系统状态
+        char mt_ssystem_no[5] = {0};    //客户所在的系统编号
+        char mt_stran_in_system_no[5] = {0};    //保证金调入系统编号
+        char mt_soccur_date[9] = {0};   //发生日期
+        char mt_soccur_time[9] = {0};   //发生时间
+        sqlint32 mt_clr_ctrl = 0;   //清算日期
+        char mt_srdate[9] = {0};    //自然日
+        char mt_snote[81] = {0};    //备注
+        char mt_sserial[13] = {0};   //流水号
+        char mt_sterminal_information[301] = {0};   //终端信息
+        sqlint32 mt_ihotsbu_serial = 0;         // HOTSBU自增序列号
+        char mt_shotsbu_serial[13] = {0};       // HOTSBU自增序列号
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;       /* 初始化为无错 */
+    int lhots_system_num = 0;   //客户在hots系统的节点数量
+    BOOL bExistTrans_Out_System = FALSE;    //判断调用方的系统编号是否是客户所在的子系统
+    long lserial = 0;   //数字流水号
+
+
+    ksstrncpy(mi_vsvarstr0, reqPack->vsvarstr0, sizeof(mi_vsvarstr0));
+    ksstrncpy(mi_sbranch_code0, reqPack->sbranch_code0, sizeof(mi_sbranch_code0));
+    ksstrncpy(mi_sserial0, reqPack->sserial0, sizeof(mi_sserial0));
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    ksstrncpy(mi_sbank_code, reqPack->sbank_code, sizeof(mi_sbank_code));
+    mi_damt0=reqPack->damt0;
+    ksstrncpy(mi_snote2, reqPack->snote2, sizeof(mi_snote2));
+    ksstrncpy(mi_vsvarstr3, reqPack->vsvarstr3, sizeof(mi_vsvarstr3));
+
+    trim(mi_sbranch_code0);
+    trim(mi_sserial0);
+    trim(mi_scust_no);
+    trim(mi_sbank_code);
+    trim(mi_vsvarstr3);
+	
+	if(strcmp(mi_sbranch_code0, "")==0)
+	{
+		ksstrncpy(mi_sbranch_code0, "000", sizeof(mi_sbranch_code0));
+	}
+
+    snprintf(mt_sterminal_information, sizeof(mt_sterminal_information), "%s%s", mi_snote2, mi_vsvarstr3);
+
+    getcurdatetime(mt_soccur_date, mt_soccur_time);
+    mt_clr_ctrl = atoi(mt_soccur_date);
+    GetMachineDateTime(mt_srdate, NULL);
+
+    //获取客户信息
+    EXEC SQL SELECT BRANCH_CODE,NAME,ROOM_NO,CUST_TYPE,STAT_TYPE,EXTERNAL_NO
+        INTO :mt_sown_branch_code, :mt_sname, :mt_sroom_no, :mt_scust_type, :mt_sstat_type, :mt_sexternal_no
+        FROM KS.CUST_BASE_INFO
+        WHERE CUST_NO=:mi_scust_no
+        WITH UR;
+
+    if(SQLCODE)
+    {
+        ERR_DEAL("查询客户基本资料表出错",4206);
+        goto L_RETU;
+    }
+
+    //校验客户号
+    if(strcmp(mi_scust_no, "")==0)
+    {
+        ERR_DEAL("客户号不可为空", 1102);
+        goto L_RETU;
+    }
+
+    //校验流水号
+    if(strcmp(mi_sserial0, "")==0)
+    {
+        ERR_DEAL("流水号不可为空", 4869);
+        goto L_RETU;
+    }
+
+    //校验系统编号
+    if(strcmp(mi_sbank_code, "")==0)
+    {
+        ERR_DEAL("系统编号不可为空", 23518);
+        goto L_RETU; 
+    }
+
+    //校验调出金额必须大于0
+    if(!(IS_GREATER_ZERO(mi_damt0)))
+    {
+        ERR_DEAL("调拨金额必须大于0", 23518);
+        goto L_RETU;
+    }
+
+    //校验系统状态是否为正常
+    EXEC SQL SELECT SYSTEM_STATUS INTO :mt_ssystem_status
+        FROM KS.SYSTEM
+        FETCH FIRST 1 ROWS ONLY;
+
+    if(SQLCODE || mt_ssystem_status[0] != '1')
+    {
+        ERR_DEAL("系统状态不正常", 6004);
+        goto L_RETU;
+    }
+
+    //校验客户是否为两地客户且存在于两个hots系统中
+    EXEC SQL DECLARE C_VIP_LIST CURSOR FOR
+        SELECT A.VIP_SYSTEM_NO
+        FROM KS.VIP_CUST_LIST A 
+        INNER JOIN KS.SERVER_CFG B 
+            ON A.VIP_SYSTEM_NO = B.SYSTEM_NO 
+        WHERE B.SYSTEM_TYPE = 'H'
+            AND A.CUST_NO = :mi_scust_no
+            AND A.NODE_ATTRIBUTE = 1 
+            AND A.STATUS IN ('1') 
+        WITH UR;
+
+    EXEC SQL OPEN C_VIP_LIST;
+    if(SQLCODE)
+    {
+        ERR_DEAL("系统错误，不能打开游标",2372);
+        goto L_RETU;
+    }
+
+    while(true)
+    {
+        memset(mt_ssystem_no, 0, sizeof(mt_ssystem_no));
+
+        EXEC SQL FETCH C_VIP_LIST INTO :mt_ssystem_no;
+
+        if(SQLCODE&&(SQLCODE != NOTFOUND))
+        {
+            ERR_DEAL("读取游标出错",4210);
+            EXEC SQL CLOSE C_VIP_LIST;
+            goto L_RETU;
+        }
+        else if(SQLCODE == NOTFOUND)
+        {
+            EXEC SQL CLOSE C_VIP_LIST;
+            break;
+        }
+
+        lhots_system_num++;
+        if(lhots_system_num>2)
+        {
+            ERR_DEAL("两地客户不能同时存在于两个以上的子系统中",8521);
+            EXEC SQL CLOSE C_VIP_LIST;
+            goto L_RETU;
+        }
+
+        trim(mt_ssystem_no);
+        if(strcmp(mt_ssystem_no,mi_sbank_code) == 0)
+        {
+            bExistTrans_Out_System = TRUE;
+        }
+        else
+        {
+            ksstrncpy(mt_stran_in_system_no, mt_ssystem_no, sizeof(mt_stran_in_system_no));
+        }
+    }
+
+    if(!bExistTrans_Out_System)
+    {
+        ERR_DEAL("发起方系统编号不存在",23518);
+        goto L_RETU;
+    }
+
+    if(lhots_system_num!=2)
+    {
+        ERR_DEAL("客户不是两地客户",8521);
+        goto L_RETU;
+    }
+
+    if(strcmp(mt_stran_in_system_no,"")==0)
+    {
+        ERR_DEAL("保证金调入方系统编号不正确",8522);
+        goto L_RETU;
+    }
+
+
+
+    /* -------------------------调出方处理 start-------------------------*/
+
+    //向KS.MARGIN_SCHEDULE表插入调拨记录
+    EXEC SQL UPDATE KS.MARGIN_SCHEDULE
+        SET TRANS_AMT=TRANS_AMT-:mi_damt0
+        WHERE CUST_NO = :mi_scust_no AND SYSTEM_NO = :mi_sbank_code;
+
+    if(SQLCODE&&(SQLCODE!=NOTFOUND))
+    {
+        ERR_DEAL("更新调拨表失败",5067);
+        goto L_RETU;
+    }
+    else if(SQLCODE == NOTFOUND)
+    {
+        EXEC SQL INSERT INTO KS.MARGIN_SCHEDULE (CUST_NO, SYSTEM_NO, TRANS_AMT)
+            VALUES(:mi_scust_no, :mi_sbank_code, -:mi_damt0);
+
+        if(SQLCODE)
+        {
+            ERR_DEAL("插入调拨表失败",5067);
+            goto L_RETU;
+        }
+    }
+
+    //获取客户流水号
+    lserial = GetCustSerial(mi_scust_no, piRetCode, omsg);
+    if( lserial <= 0)
+    {
+        ERR_DEAL(omsg,*piRetCode);
+        goto L_RETU;
+    }
+    sprintf(mt_sserial,"%012d", lserial);
+    
+    snprintf(mt_snote, sizeof(mt_snote), "系统[%s]:保证金调拨[调出],调拨金额[%f]", mi_sbank_code, mi_damt0);
+
+    //向KS.FUND_STOCK_CHANGE表插入调拨流水，留痕用
+    //调出方流水
+    EXEC SQL INSERT INTO KS.FUND_STOCK_CHANGE 
+        (OCCUR_DATE, CLR_CTRL, SERIAL_NO, OCCUR_TIME, OCCUR_BRANCH, BRANCH_CODE, CUST_NO, 
+         CURRENCY_TYPE, FUND_ACC_NO, CUST_NAME, MARKET_CODE, HOLDER_ACC_NO, SEC_CODE, SEC_CHG, 
+         SEC_NET_CHG, SEC_BAL, FUND_CHG, FUND_BAL, BUSINESS_CODE, BANK_CODE, BANK_ACC_NO, 
+         BANK_ACC_NAME, OP_EMP, DOUBLE_CHECK_EMP, SEC_SHORT_NAME, DONE_AMT, JOIN_SERIAL_NO, ENTRUST_METHOD, 
+         ROOM_NO, CUST_TYPE, STAT_TYPE, CHANGE_TYPE, JOIN_DATE, JOIN_CUST_NO, BILL_NO, 
+         NOTE, INTEREST_DATE, INTEND_IN_ACC_DATE, IN_ACC_DATE, IN_ACC_FLAG, RELATIVE_DATE, CANCEL_FLAG, 
+         DOUBLE_CHECK_FLAG, CHECK_DATE, IN_OUT, DELIVER_EMP, DELIVER_DATE, DELIVER_FLAG, INTEREST_ACCU, 
+         FINE_ACCU, SEC_IN_OUT, SEAT_NO, SEC_TYPE, EXTERNAL_NO, R_DATE, DELIVER_METHOD, 
+         BOND_NO)
+        VALUES 
+        (:mt_soccur_date, :mt_clr_ctrl, :mt_sserial, :mt_soccur_time, :mi_sbranch_code0, :mt_sown_branch_code, :mi_scust_no, 
+         '01', '01', :mt_sname, '', '', '', 0, 
+         0, 0, 0, 0, '3709', '', '', 
+         '', 'SYSTEM', '', '', 0, :mi_sserial0, '', 
+         :mt_sroom_no, :mt_scust_type, :mt_sstat_type, '00', :mt_soccur_date, '', '', 
+         :mt_snote, '', '', '', '0', '', '1', 
+         '1', :mt_soccur_date, '1', '', '', '', 0, 
+         0, '1', '', '', :mt_sexternal_no, :mt_srdate, '', 
+         '');
+
+    if(SQLCODE)
+    {
+        ERR_DEAL("插入流水表失败",5067);
+        goto L_RETU;
+    }
+
+    //向KS.HOTS_FUND_STK_TMP_CHG表插入调拨流水
+    // 获取自增流水
+    mt_ihotsbu_serial = 0;
+    EXEC SQL 
+        VALUES NEXT VALUE FOR KS.HOTSBU_SERIAL INTO :mt_ihotsbu_serial;
+    if (SQLCODE)
+    {
+        ERR_DEAL("获取自增序列号失败", 9765);
+        goto L_RETU;
+    }
+    snprintf(mt_shotsbu_serial, sizeof(mt_shotsbu_serial), "%012d", mt_ihotsbu_serial);
+
+    //调入方推送流水
+    EXEC SQL INSERT INTO KS.HOTS_FUND_STK_TMP_CHG 
+        (CLR_CTRL, BRANCH_CODE, OCCUR_DATE, OCCUR_TIME, SERIAL_NO, CUST_NO, CURRENCY_TYPE, 
+        FUND_ACC_NO, HOLDER_ACC_NO, BUSINESS_CODE, MARKET_CODE, SEC_CODE, CHANGE_BAL, CHANGE_VOL, 
+        CHANGE_TYPE, NOTE, BANK_CODE, ENTRUST_METHOD, DONE_PRICE, JOIN_DATE, JOIN_SERIAL_NO, 
+        CHECK_DATE, R_DATE, CONTRACT_NO, STATUS, SYSTEM_NO, GLOBAL_SERIAL)
+        VALUES 
+        (:mt_clr_ctrl, :mt_sown_branch_code, :mt_soccur_date, :mt_soccur_time, :mt_sserial, :mi_scust_no, '01', 
+        '01', '', '3709', '', '', :mi_damt0, 0, 
+        '00', '', '', '', 0, :mt_soccur_date, :mi_sserial0, 
+        '', :mt_srdate, '', '0', :mi_sbank_code, :mt_shotsbu_serial);
+
+    if(SQLCODE)
+    {
+        ERR_DEAL("插入推送流水表失败",9343);
+        goto L_RETU;
+    }
+    
+    //向KS.OTHER_TRADE_CUST_TERM表中记录终端信息
+    EXEC SQL INSERT INTO KS.OTHER_TRADE_CUST_TERM
+        (BUSINESS_DATE, CUST_NO, SERIAL_NO, BS_TYPE, BRANCH_CODE, TABLE_NAME, TRADE_TERM_INFO)
+        VALUES
+        (:mt_soccur_date, :mi_scust_no, :mt_sserial, '3709', :mi_sbranch_code0, 'MARGIN_SCHEDULE', :mt_sterminal_information);
+
+    //终端信息记录失败也不做处理
+
+    /* -------------------------调出方处理 end  -------------------------*/
+
+
+
+
+
+    /* -------------------------调入方处理 start-------------------------*/
+
+    //向KS.MARGIN_SCHEDULE表插入调拨记录
+    //调入方记录
+    EXEC SQL UPDATE KS.MARGIN_SCHEDULE
+        SET TRANS_AMT=TRANS_AMT+:mi_damt0
+        WHERE CUST_NO = :mi_scust_no AND SYSTEM_NO = :mt_stran_in_system_no;
+
+    if(SQLCODE&&(SQLCODE!=NOTFOUND))
+    {
+        ERR_DEAL("更新调拨表失败",5067);
+        goto L_RETU;
+    }
+    else if(SQLCODE == NOTFOUND)
+    {
+        EXEC SQL INSERT INTO KS.MARGIN_SCHEDULE (CUST_NO, SYSTEM_NO, TRANS_AMT)
+            VALUES(:mi_scust_no, :mt_stran_in_system_no, :mi_damt0);
+
+        if(SQLCODE)
+        {
+            ERR_DEAL("插入调拨表失败",5067);
+            goto L_RETU;
+        }
+    }
+
+    //获取客户流水号
+    lserial = GetCustSerial(mi_scust_no, piRetCode, omsg);
+    if( lserial <= 0)
+    {
+        ERR_DEAL(omsg,*piRetCode);
+        goto L_RETU;
+    }
+    sprintf(mt_sserial,"%012d", lserial);
+
+    snprintf(mt_snote, sizeof(mt_snote), "系统[%s]:保证金调拨[调入],调拨金额[%f]", mt_stran_in_system_no, mi_damt0);
+
+    //向KS.FUND_STOCK_CHANGE表插入调拨流水，留痕用
+    //调入方流水
+    EXEC SQL INSERT INTO KS.FUND_STOCK_CHANGE 
+        (OCCUR_DATE, CLR_CTRL, SERIAL_NO, OCCUR_TIME, OCCUR_BRANCH, BRANCH_CODE, CUST_NO, 
+         CURRENCY_TYPE, FUND_ACC_NO, CUST_NAME, MARKET_CODE, HOLDER_ACC_NO, SEC_CODE, SEC_CHG, 
+         SEC_NET_CHG, SEC_BAL, FUND_CHG, FUND_BAL, BUSINESS_CODE, BANK_CODE, BANK_ACC_NO, 
+         BANK_ACC_NAME, OP_EMP, DOUBLE_CHECK_EMP, SEC_SHORT_NAME, DONE_AMT, JOIN_SERIAL_NO, ENTRUST_METHOD, 
+         ROOM_NO, CUST_TYPE, STAT_TYPE, CHANGE_TYPE, JOIN_DATE, JOIN_CUST_NO, BILL_NO, 
+         NOTE, INTEREST_DATE, INTEND_IN_ACC_DATE, IN_ACC_DATE, IN_ACC_FLAG, RELATIVE_DATE, CANCEL_FLAG, 
+         DOUBLE_CHECK_FLAG, CHECK_DATE, IN_OUT, DELIVER_EMP, DELIVER_DATE, DELIVER_FLAG, INTEREST_ACCU, 
+         FINE_ACCU, SEC_IN_OUT, SEAT_NO, SEC_TYPE, EXTERNAL_NO, R_DATE, DELIVER_METHOD, 
+         BOND_NO)
+        VALUES 
+        (:mt_soccur_date, :mt_clr_ctrl, :mt_sserial, :mt_soccur_time, :mi_sbranch_code0, :mt_sown_branch_code, :mi_scust_no, 
+         '01', '01', :mt_sname, '', '', '', 0, 
+         0, 0, 0, 0, '3710', '', '', 
+         '', 'SYSTEM', '', '', 0, :mi_sserial0, '', 
+         :mt_sroom_no, :mt_scust_type, :mt_sstat_type, '00', :mt_soccur_date, '', '', 
+         :mt_snote, '', '', '', '0', '', '1', 
+         '1', :mt_soccur_date, '1', '', '', '', 0, 
+         0, '1', '', '', :mt_sexternal_no, :mt_srdate, '', 
+         '');
+
+    if(SQLCODE)
+    {
+        ERR_DEAL("插入流水表失败",5067);
+        goto L_RETU;
+    }
+
+    //向KS.HOTS_FUND_STK_TMP_CHG表插入调拨流水
+    // 获取自增流水
+    mt_ihotsbu_serial = 0;
+    EXEC SQL 
+        VALUES NEXT VALUE FOR KS.HOTSBU_SERIAL INTO :mt_ihotsbu_serial;
+    if (SQLCODE)
+    {
+        ERR_DEAL("获取自增序列号失败", 9765);
+        goto L_RETU;
+    }
+    snprintf(mt_shotsbu_serial, sizeof(mt_shotsbu_serial), "%012d", mt_ihotsbu_serial);
+
+    //调入方推送流水
+    EXEC SQL INSERT INTO KS.HOTS_FUND_STK_TMP_CHG 
+        (CLR_CTRL, BRANCH_CODE, OCCUR_DATE, OCCUR_TIME, SERIAL_NO, CUST_NO, CURRENCY_TYPE, 
+        FUND_ACC_NO, HOLDER_ACC_NO, BUSINESS_CODE, MARKET_CODE, SEC_CODE, CHANGE_BAL, CHANGE_VOL, 
+        CHANGE_TYPE, NOTE, BANK_CODE, ENTRUST_METHOD, DONE_PRICE, JOIN_DATE, JOIN_SERIAL_NO, 
+        CHECK_DATE, R_DATE, CONTRACT_NO, STATUS, SYSTEM_NO, GLOBAL_SERIAL)
+        VALUES 
+        (:mt_clr_ctrl, :mt_sown_branch_code, :mt_soccur_date, :mt_soccur_time, :mt_sserial, :mi_scust_no, '01', 
+        '01', '', '3710', '', '', :mi_damt0, 0, 
+        '00', '', '', '', 0, :mt_soccur_date, :mi_sserial0, 
+        '', :mt_srdate, '', '0', :mt_stran_in_system_no, :mt_shotsbu_serial);
+
+    if(SQLCODE)
+    {
+        ERR_DEAL("插入推送流水表失败",9343);
+        goto L_RETU;
+    }
+
+    //向KS.OTHER_TRADE_CUST_TERM表中记录终端信息
+    EXEC SQL INSERT INTO KS.OTHER_TRADE_CUST_TERM
+        (BUSINESS_DATE, CUST_NO, SERIAL_NO, BS_TYPE, BRANCH_CODE, TABLE_NAME, TRADE_TERM_INFO)
+        VALUES
+        (:mt_soccur_date, :mi_scust_no, :mt_sserial, '3710', :mi_sbranch_code0, 'MARGIN_SCHEDULE', :mt_sterminal_information);
+
+    //终端信息记录失败也不做处理
+
+    /* -------------------------调入方处理 end  -------------------------*/
+
+      
+
+L_RETU:
+    //如果处理失败，需要向发起方系统推送失败的流水
+    if(!bRet)
+    {
+        //回滚修改的数据
+        RollBack();
+
+        //获取客户流水号
+        if(strcmp(mi_scust_no, "") == 0)
+        {
+            lserial = GetCustSerial("000", piRetCode, omsg);
+        }
+        else
+        {
+            lserial = GetCustSerial(mi_scust_no, piRetCode, omsg);
+        }
+
+        if( lserial <= 0)
+        {
+            ERR_DEAL(omsg,*piRetCode);
+            return bRet;
+        }
+        sprintf(mt_sserial,"%012d", lserial);
+
+        // 获取自增流水
+        mt_ihotsbu_serial = 0;
+        EXEC SQL 
+            VALUES NEXT VALUE FOR KS.HOTSBU_SERIAL INTO :mt_ihotsbu_serial;
+        if (SQLCODE)
+        {
+            ERR_DEAL("获取自增序列号失败", 9765);
+            return bRet;
+        }
+        snprintf(mt_shotsbu_serial, sizeof(mt_shotsbu_serial), "%012d", mt_ihotsbu_serial);
+
+        snprintf(mt_snote, sizeof(mt_snote), "%d,%s", *piRetCode, omsg);
+
+        //插入推送流水
+        EXEC SQL INSERT INTO KS.HOTS_FUND_STK_TMP_CHG 
+            (CLR_CTRL, BRANCH_CODE, OCCUR_DATE, OCCUR_TIME, SERIAL_NO, CUST_NO, CURRENCY_TYPE, 
+            FUND_ACC_NO, HOLDER_ACC_NO, BUSINESS_CODE, MARKET_CODE, SEC_CODE, CHANGE_BAL, CHANGE_VOL, 
+            CHANGE_TYPE, NOTE, BANK_CODE, ENTRUST_METHOD, DONE_PRICE, JOIN_DATE, JOIN_SERIAL_NO, 
+            CHECK_DATE, R_DATE, CONTRACT_NO, STATUS, SYSTEM_NO, GLOBAL_SERIAL)
+            VALUES 
+            (:mt_clr_ctrl, :mi_sbranch_code0, :mt_soccur_date, :mt_soccur_time, :mt_sserial, :mi_scust_no, '01', 
+            '01', '', '3709', '', '', -1, 0, 
+            '00', :mt_snote, '', '', 0, :mt_soccur_date, :mi_sserial0, 
+            '', :mt_srdate, '', '0', :mi_sbank_code, :mt_shotsbu_serial);
+
+        if(SQLCODE)
+        {
+            ERR_DEAL("插入推送流水表失败",9343);
+            return bRet;
+        }
+
+        //提交推送流水
+        Commit();
+    }
+    return bRet;
+}

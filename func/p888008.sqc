@@ -1,0 +1,332 @@
+/* ----------------------------------------------------------
+ * 程序名称：p888008.sqc
+ * 创建日期：2020-12-23
+ * 程序作者：李向东
+ * 版本信息：3.22.1.0
+ * 程序功能：单次扫描HOTS_OTHER_ENTRUST表信息并推送
+ * ----------------------------------------------------------
+ * 修改日期: 2021-03-04
+ * 修改人员: 李向东
+ * 修改描述: pushbu推送错误，尝试重推逻辑修改
+ *          推送增加标识 lvol12=2;标识推送来源为融资融券
+ * 备注信息: SECRZRQ-9174
+ * 版本信息: 3.22.1.0
+ * 专题信息：【20210303】SECREQ-13212 HOTSBU支持推送非交易设置信息
+ * --------------------------------------------------------------
+ * 修改日期: 2021-12-24
+ * 修改人员: 李向东
+ * 修改描述: PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包
+ * 备注信息: SECRZRQ-10823
+ * 版本信息: 3.22.1.0
+ * 专题信息: SECRZRQ-10823【海通】【两融】解决HOTSBU压测时500笔委托时丢包问题
+ * --------------------------------------------------------------*/
+
+#include "inc.h"
+#include "hotsparam.h"
+#include "mypub.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888008(LPVOID handle, int iRequest, ST_PACK *reqPack, int *piRetCode, char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char     mt_sdate[9]                = { 0 };
+
+        char    mt_sglobal_serial[13] = {0};  // 全局流水号
+        char    mt_sbranch_code[4] = {0};  // 营业部
+        char    mt_scust_no[11] = {0};  // 客户号
+        char    mt_scust_type[3] = {0};  // 客户类被
+        char    mt_sroom_no[4] = {0};  // 客户分组
+        char    mt_sstat_type[3] = {0};  // 统计类别
+        char    mt_sbs[3] = {0};  // 业务类别
+        char    mt_sserial_no[13] = {0};  // 流水号
+        char    mt_smarket_code[2] = {0};  // 市场代码
+        char    mt_ssec_code[9] = {0};  // 证券代码
+        char    mt_ssec_short_name[41] = {0};  // 证券简称
+        char    mt_sholder_acc_no[16] = {0};  // 证券账号
+        char    mt_sseat_no[9] = {0};  // 席位号
+        char    mt_sto_seat_no[9] = {0};  // 对方席位号
+        char    mt_sto_holder_acc_no[16] = {0};  // 对账股东账号
+        double    mt_dentrust_vol = 0;  // 委托数量
+        double    mt_dentrust_amt = 0;  // 委托金额
+        double    mt_dentrust_price = 0;  // 委托价格
+        char    mt_sentrust_date[9] = {0};  // 委托日期
+        char    mt_sentrust_time[9] = {0};  // 委托时间
+        char    mt_sentrust_status[2] = {0};  // 委托状态
+        char    mt_smain_seat_no[9] = {0};  // 主席位号
+        char    mt_sentrust_branch[4] = {0};  // 委托发生营业部
+        char    mt_sentrust_method[2] = {0};  // 委托方式
+        char    mt_sentrust_source[21] = {0};  // 委托来源
+        char    mt_srpt_date[9] = {0};  // 申报日期
+        char    mt_srpt_time[9] = {0};  // 申报时间
+        char    mt_sexchange_err_code[7] = {0};  // 交易所错误代码
+        char    mt_sr_date[9] = {0};  // 委托自然日期
+        char    mt_semp_code[7] = {0};  // 职工代码
+        char    mt_sjoin_cust_no[11] = {0};  // 关联客户号
+        sqlint32    mt_iord_recno = 0;  // 委托记录
+        char    mt_snew_entrust_source[81] = {0};  // 新委托来源
+        char    mt_sreport_type[4] = {0};  // 中登申报类型
+        char    mt_sbusi_type[4] = {0};  // 中登业务类别
+        char    mt_ssrpt_contract[11] = {0};  // 申报编号
+        char    mt_sclear_no[9] = {0};  // 清算编号
+        char    mt_sorig_rpt_contract[11] = {0};  // 原申报编号
+        sqlint32    mt_irequest_type = 0;  // 委托交易编码
+        sqlint32    mt_ians_request_type = 0;  // 返回交易编号
+        char    mt_szyb_seat[7] = {0};  // 专业版席位
+        sqlint32    mt_izyb_serial = 0;  // 专业版序号
+        char    mt_ssystem_no[5] = {0};  // 系统编号
+        char    mt_sstatus[2] = {0};  // 推送状态
+        char    mt_serr_msg[256] = {0};  // 错误信息
+
+        char    mt_ssource_no[11]           = { 0 };
+        char    mt_sfunction_no[11]         = { 0 };
+        char    mt_sdest_no[6]              = { 0 };
+    EXEC SQL END DECLARE SECTION;
+
+    int icount     = 0; // count for pushed
+    int irecount   = 0; // count for repushed
+    BOOL bRet      = TRUE;
+    BOOL bSuccess  = TRUE;
+    ST_CPACK rpack = { 0 };
+    int isource_no = 0;
+    int ifunction_no = 0;
+    int idest_no   = 0;
+
+    // 获取当前时间
+    GetMachineDateTime(mt_sdate, NULL);
+
+    rpack.head.RequestType = 1421403;
+    rpack.head.firstflag = 1;
+    rpack.head.nextflag = 0;
+    rpack.head.recCount = 1;
+    SetColEx(NULL, &rpack, 
+            F_SSERIAL2, F_SBRANCH_CODE0, F_SCUST_NO, F_SCUST_TYPE, F_SROOM_NO,
+            F_SSTAT_TYPE, F_SCUST_TYPE2, F_SSERIAL0, F_SMARKET_CODE, F_SSTOCK_CODE,
+            F_SBANK_ACC, F_SHOLDER_AC_NO, F_SEMP_PWD, F_SEMP_PWD2, F_SHOLDER_AC_NO2,
+            F_LVOL0, F_DAMT0, F_DAMT1, F_SDATE0, F_STIME0,
+            F_SSTATUS0, F_SBANK_PWD, F_SBRANCH_CODE1, F_SSTATUS1, F_SNAME,
+            F_SDATE1, F_STIME1, F_SOPEN_EMP, F_SDATE2, F_SEMP,
+            F_SCUST_NO2, F_LVOL1, F_SBANKNAME, F_SROOM_NO2, F_SNATION_CODE,
+            F_SORDER0, F_SDATE3, F_SORDER1, F_LVOL2, F_LVOL3,
+            F_SPOST_CODE, F_LVOL4, F_SSERIAL1, F_SSTATUS2, F_VSMESS,
+            0);
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT
+            GLOBAL_SERIAL, BRANCH_CODE, CUST_NO, CUST_TYPE, ROOM_NO, 
+            STAT_TYPE, BS, SERIAL_NO, MARKET_CODE, SEC_CODE, 
+            SEC_SHORT_NAME, HOLDER_ACC_NO, SEAT_NO, TO_SEAT_NO, TO_HOLDER_ACC_NO, 
+            ENTRUST_VOL, ENTRUST_AMT, ENTRUST_PRICE, ENTRUST_DATE, ENTRUST_TIME, 
+            ENTRUST_STATUS, MAIN_SEAT_NO, ENTRUST_BRANCH, ENTRUST_METHOD, ENTRUST_SOURCE, 
+            RPT_DATE, RPT_TIME, EXCHANGE_ERR_CODE, R_DATE, EMP_CODE, 
+            JOIN_CUST_NO, ORD_RECNO, NEW_ENTRUST_SOURCE, REPORT_TYPE, BUSI_TYPE, 
+            SRPT_CONTRACT, CLEAR_NO, ORIG_RPT_CONTRACT, REQUEST_TYPE, ANS_REQUEST_TYPE, 
+            ZYB_SEAT, ZYB_SERIAL, SYSTEM_NO, STATUS, ERR_MSG
+        FROM KS.HOTS_OTHER_ENTRUST A
+        WHERE A.ENTRUST_DATE = :mt_sdate
+            AND A.STATUS = '0'
+        ORDER BY A.GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if (SQLCODE != 0)
+    {
+        sprintf(omsg, "打开游标错误");
+        ERR_DEAL(omsg, 2372);
+        goto L_RETU;
+    }
+
+    while (icount < g_pushbu_param.inumPerPush)
+    {
+        EXEC SQL FETCH C1 INTO
+            :mt_sglobal_serial,:mt_sbranch_code,:mt_scust_no,:mt_scust_type,:mt_sroom_no,
+            :mt_sstat_type,:mt_sbs,:mt_sserial_no,:mt_smarket_code,:mt_ssec_code,
+            :mt_ssec_short_name,:mt_sholder_acc_no,:mt_sseat_no,:mt_sto_seat_no,:mt_sto_holder_acc_no,
+            :mt_dentrust_vol,:mt_dentrust_amt,:mt_dentrust_price,:mt_sentrust_date,:mt_sentrust_time,
+            :mt_sentrust_status,:mt_smain_seat_no,:mt_sentrust_branch,:mt_sentrust_method,:mt_sentrust_source,
+            :mt_srpt_date,:mt_srpt_time,:mt_sexchange_err_code,:mt_sr_date,:mt_semp_code,
+            :mt_sjoin_cust_no,:mt_iord_recno,:mt_snew_entrust_source,:mt_sreport_type,:mt_sbusi_type,
+            :mt_ssrpt_contract,:mt_sclear_no,:mt_sorig_rpt_contract,:mt_irequest_type,:mt_ians_request_type,
+            :mt_szyb_seat,:mt_izyb_serial,:mt_ssystem_no,:mt_sstatus,:mt_serr_msg;
+        if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+        {
+            sprintf(omsg, "从游标中获取HOTS_OTHER_ENTRUST表数据错误");
+            ERR_DEAL(omsg, 9816); 
+            goto L_RETU;
+        }
+        else if (SQLCODE == NOTFOUND)
+        {
+            break;
+        }
+
+        // ''+系统分组匹配
+        EXEC SQL
+            SELECT SOURCE_NO,DEST_NO,FUNCTION_NO
+                INTO :mt_ssource_no,:mt_sdest_no,:mt_sfunction_no
+            FROM KS.HOTS_SERVER_CFG
+            WHERE BUSINESS_CODE=''
+                  AND SYSTEM_NO=:mt_ssystem_no
+            WITH UR;
+        if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+        {
+            sprintf(omsg, "查HOTS路由表失败");
+            ERR_DEAL(omsg, 9711);
+            goto L_RETU;
+        }
+        // ''+''匹配
+        else if (SQLCODE == NOTFOUND)
+        {
+            EXEC SQL
+            SELECT SOURCE_NO,DEST_NO,FUNCTION_NO
+                INTO :mt_ssource_no,:mt_sdest_no,:mt_sfunction_no
+            FROM KS.HOTS_SERVER_CFG
+            WHERE BUSINESS_CODE=''
+                  AND SYSTEM_NO=''
+            WITH UR;
+            if (SQLCODE != 0 && SQLCODE != NOTFOUND)
+            {
+                sprintf(omsg, "查HOTS路由表失败");
+                ERR_DEAL(omsg, 9711);
+                goto L_RETU;
+            }
+            else if(SQLCODE == NOTFOUND)
+            {
+                WriteLog(1, "[%s]成交未配置路由信息, 且无默认配置, 无法推送, 更新该笔HOTS非交易委托[%s]+[%s]+[%s]+[%s]状态为存疑",
+                         mt_ssystem_no, mt_sglobal_serial, mt_sserial_no, mt_sserial_no, mt_sentrust_date);
+                EXEC SQL
+                    UPDATE KS.HOTS_OTHER_ENTRUST
+                    SET STATUS = '3'
+                    WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+                if (SQLCODE != 0)
+                {
+                    sprintf(omsg, "更新HOTS_OTHER_ENTRUST表状态错误");
+                    ERR_DEAL(omsg, 9815);
+                    goto L_RETU;
+                }
+                continue;
+            }
+        }
+
+        // 将流水数据打包
+        rpack.pack.lvol12 = 2; //交易系统标识 1-集中交易；2-融资融券
+        ksstrncpy(rpack.pack.sserial2, mt_sglobal_serial, sizeof(rpack.pack.sserial2));
+        ksstrncpy(rpack.pack.sbranch_code0, mt_sbranch_code, sizeof(rpack.pack.sbranch_code0));
+        ksstrncpy(rpack.pack.scust_no, mt_scust_no, sizeof(rpack.pack.scust_no));
+        ksstrncpy(rpack.pack.scust_type, mt_scust_type, sizeof(rpack.pack.scust_type));
+        ksstrncpy(rpack.pack.sroom_no, mt_sroom_no, sizeof(rpack.pack.sroom_no));
+        ksstrncpy(rpack.pack.sstat_type, mt_sstat_type, sizeof(rpack.pack.sstat_type));
+        ksstrncpy(rpack.pack.scust_type2, mt_sbs, sizeof(rpack.pack.scust_type2));
+        ksstrncpy(rpack.pack.sserial0, mt_sserial_no, sizeof(rpack.pack.sserial0));
+        ksstrncpy(rpack.pack.smarket_code, mt_smarket_code, sizeof(rpack.pack.smarket_code));
+        ksstrncpy(rpack.pack.sstock_code, mt_ssec_code, sizeof(rpack.pack.sstock_code));
+        ksstrncpy(rpack.pack.sbank_acc, mt_ssec_short_name, sizeof(rpack.pack.sbank_acc));
+        ksstrncpy(rpack.pack.sholder_ac_no, mt_sholder_acc_no, sizeof(rpack.pack.sholder_ac_no));
+        ksstrncpy(rpack.pack.semp_pwd, mt_sseat_no, sizeof(rpack.pack.semp_pwd));
+        ksstrncpy(rpack.pack.semp_pwd2, mt_sto_seat_no, sizeof(rpack.pack.semp_pwd2));
+        ksstrncpy(rpack.pack.sholder_ac_no2, mt_sto_holder_acc_no, sizeof(rpack.pack.sholder_ac_no2));
+        rpack.pack.lvol0 = mt_dentrust_vol;
+        rpack.pack.damt0 = mt_dentrust_amt;
+        rpack.pack.damt1 = mt_dentrust_price;
+        ksstrncpy(rpack.pack.sdate0, mt_sentrust_date, sizeof(rpack.pack.sdate0));
+        ksstrncpy(rpack.pack.stime0, mt_sentrust_time, sizeof(rpack.pack.stime0));
+        ksstrncpy(rpack.pack.sstatus0, mt_sentrust_status, sizeof(rpack.pack.sstatus0));
+        ksstrncpy(rpack.pack.sbank_pwd, mt_smain_seat_no, sizeof(rpack.pack.sbank_pwd));
+        ksstrncpy(rpack.pack.sbranch_code1, mt_sentrust_branch, sizeof(rpack.pack.sbranch_code1));
+        ksstrncpy(rpack.pack.sstatus1, mt_sentrust_method, sizeof(rpack.pack.sstatus1));
+        ksstrncpy(rpack.pack.sname, mt_sentrust_source, sizeof(rpack.pack.sname));
+        ksstrncpy(rpack.pack.sdate1, mt_srpt_date, sizeof(rpack.pack.sdate1));
+        ksstrncpy(rpack.pack.stime1, mt_srpt_time, sizeof(rpack.pack.stime1));
+        ksstrncpy(rpack.pack.sopen_emp, mt_sexchange_err_code, sizeof(rpack.pack.sopen_emp));
+        ksstrncpy(rpack.pack.sdate2, mt_sr_date, sizeof(rpack.pack.sdate2));
+        ksstrncpy(rpack.pack.semp, mt_semp_code, sizeof(rpack.pack.semp));
+        ksstrncpy(rpack.pack.scust_no2, mt_sjoin_cust_no, sizeof(rpack.pack.scust_no2));
+        rpack.pack.lvol1 = mt_iord_recno;
+        ksstrncpy(rpack.pack.sbankname, mt_snew_entrust_source, sizeof(rpack.pack.sbankname));
+        ksstrncpy(rpack.pack.sroom_no2, mt_sreport_type, sizeof(rpack.pack.sroom_no2));
+        ksstrncpy(rpack.pack.snation_code, mt_sbusi_type, sizeof(rpack.pack.snation_code));
+        ksstrncpy(rpack.pack.sorder0, mt_ssrpt_contract, sizeof(rpack.pack.sorder0));
+        ksstrncpy(rpack.pack.sdate3, mt_sclear_no, sizeof(rpack.pack.sdate3));
+        ksstrncpy(rpack.pack.sorder1, mt_sorig_rpt_contract, sizeof(rpack.pack.sorder1));
+        rpack.pack.lvol2 = mt_irequest_type;
+        rpack.pack.lvol3 = mt_ians_request_type;
+        ksstrncpy(rpack.pack.spost_code, mt_szyb_seat, sizeof(rpack.pack.spost_code));
+        rpack.pack.lvol4 = mt_izyb_serial;
+        ksstrncpy(rpack.pack.sserial1, mt_ssystem_no, sizeof(rpack.pack.sserial1));
+        ksstrncpy(rpack.pack.sstatus2, mt_sstatus, sizeof(rpack.pack.sstatus2));
+        ksstrncpy(rpack.pack.vsmess, mt_serr_msg, sizeof(rpack.pack.vsmess));
+
+
+        // 推送该条内容
+        isource_no = atoi(mt_ssource_no);
+        idest_no = atoi(mt_sdest_no);
+        ifunction_no = atoi(mt_sfunction_no);
+        if (PushData(isource_no, idest_no, ifunction_no, 0, &rpack, PM_ACK, 0, NULL) < 0) /* PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包 modify by lxd 2021-12-24 */
+        {
+            if (bSuccess != FALSE)
+            {
+                bSuccess = FALSE;
+                irecount = 1;
+            }
+            while(irecount++ < g_pushbu_param.itryTimes)
+            {
+                if (PushData(isource_no, idest_no, ifunction_no, 0, &rpack, PM_ACK, 0, NULL) >= 0) /* PushData调用超时时间由2改为0，防止bcc丢弃超时的pushdata包 modify by lxd 2021-12-24 */
+                {
+                    bSuccess = TRUE;
+                    EXEC SQL
+                        UPDATE KS.HOTS_OTHER_ENTRUST
+                        SET STATUS = '1'
+                        WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+                    if (SQLCODE != 0)
+                    {
+                        sprintf(omsg, "更新HOTS_OTHER_ENTRUST表状态错误");
+                        ERR_DEAL(omsg, 9815);
+                        goto L_RETU;
+                    }
+                    ++icount;
+                    break;
+                }
+            }
+            if (bSuccess == FALSE)
+            {
+                // 复位
+                bSuccess = TRUE;
+                EXEC SQL
+                    UPDATE KS.HOTS_OTHER_ENTRUST
+                    SET STATUS = '3'
+                    WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+                if (SQLCODE != 0)
+                {
+                    sprintf(omsg, "更新HOTS_OTHER_ENTRUST表状态错误");
+                    ERR_DEAL(omsg, 9815);
+                    goto L_RETU;
+                }
+            }
+        }
+        else
+        {
+            EXEC SQL
+                UPDATE KS.HOTS_OTHER_ENTRUST
+                SET STATUS = '1'
+                WHERE GLOBAL_SERIAL = :mt_sglobal_serial;
+            if (SQLCODE != 0)
+            {
+                sprintf(omsg, "更新HOTS_OTHER_ENTRUST表状态错误");
+                ERR_DEAL(omsg, 9815);
+                goto L_RETU;
+            }
+
+            ++icount;
+        }
+    }
+
+L_RETU:
+    EXEC SQL CLOSE C1;
+    if (bRet == FALSE)
+    {
+        RollBack();
+    }
+    else
+    {
+        Commit();
+    }
+
+    return TRUE;
+}

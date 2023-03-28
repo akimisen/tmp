@@ -1,0 +1,125 @@
+/* --------------------------------------------------------------
+ * 程序名称: p888019.sqc
+ * 创建日期：2021-03-03
+ * 程序作者: 李向东
+ * 程序功能: HOTS推送非交易设置查询
+ * 备注信息: SECRZRQ-9174
+ * 版本信息: <ver>
+ * 专题信息：【20210303】SECREQ-13212 HOTSBU支持推送非交易设置信息
+ * -------------------------------------------------------------- */
+
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888019(LPVOID handle,int iRequest,ST_PACK *reqPack,int *piRetCode,char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char mi_sglobal_serial[13] = {0};
+        char mi_scust_no[11] = {0};
+        char mi_sopertate_type[2] = {0};
+        char mi_stable_name[61] = {0};
+        char mi_ssystem_no[5] = {0};
+        char mi_sstatus[2] = {0};
+
+        char mt_sglobal_serial[13] = {0};
+        char mt_ssystem_no[5] = {0};
+        char mt_sstatus[2] = {0};
+        char mt_scust_no[11] = {0};
+        char mt_stable_name[61] = {0};
+        char mt_sopertate_type[2] = {0};
+        char mt_slast_value[1601] = {0};
+        char mt_sset_emp[7] = {0};
+        char mt_sset_date[9] = {0};
+        char mt_sset_time[9] = {0};
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;
+    ST_PACK rpack = { 0 };
+    SetCol(handle,
+            F_SSERIAL2,
+            F_SSERIAL1,
+            F_SSTATUS2,
+            F_SCUST_NO,
+            F_SEMAIL,
+            F_SSTATUS0,
+            F_VSVARSTR0,
+            F_SEMP,
+            F_SDATE0,
+            F_STIME0,
+            0);
+
+    ksstrncpy(mi_sglobal_serial, reqPack->sserial2, sizeof(mi_sglobal_serial));
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    ksstrncpy(mi_sopertate_type, reqPack->sstatus0, sizeof(mi_sopertate_type));
+    ksstrncpy(mi_stable_name, reqPack->semail, sizeof(mi_stable_name));
+    ksstrncpy(mi_ssystem_no, reqPack->sserial0, sizeof(mi_ssystem_no));
+    ksstrncpy(mi_sstatus, reqPack->sstatus1, sizeof(mi_sstatus));
+    trim(mi_sglobal_serial);
+    trim(mi_scust_no);
+    trim(mi_sopertate_type);
+    trim(mi_stable_name);
+    trim(mi_ssystem_no);
+    trim(mi_sstatus);
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT
+            GLOBAL_SERIAL,SYSTEM_NO,STATUS,CUST_NO,TABLE_NAME,
+            OPERTATE_TYPE,LAST_VALUE,SET_EMP,SET_DATE,SET_TIME
+        FROM KS.HOTS_NOTRADE_TABLE_CHG A
+        WHERE (:mi_sglobal_serial = '' OR A.GLOBAL_SERIAL = :mi_sglobal_serial)
+            AND (:mi_scust_no = '' OR A.CUST_NO = :mi_scust_no)
+            AND (:mi_sopertate_type = '' OR A.OPERTATE_TYPE = :mi_sopertate_type)
+            AND (:mi_stable_name = '' OR A.TABLE_NAME = :mi_stable_name)
+            AND (:mi_ssystem_no = '' OR A.SYSTEM_NO = :mi_ssystem_no)
+            AND (:mi_sstatus = '' OR A.STATUS = :mi_sstatus)
+        ORDER BY A.GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("打开游标错误",2372);
+        goto L_RETURN;
+    }
+
+    EXEC SQL FETCH C1 INTO
+        :mt_sglobal_serial,:mt_ssystem_no,:mt_sstatus,:mt_scust_no,:mt_stable_name,
+        :mt_sopertate_type,:mt_slast_value,:mt_sset_emp,:mt_sset_date,:mt_sset_time;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("从游标中获取HOTS_NOTRADE_TABLE_CHG表数据错误",9888);
+        goto L_RETURN;
+    }
+    while (SQLCODE == 0)
+    {
+        // 将流水数据打包
+        ksstrncpy(rpack.sserial2, mt_sglobal_serial, sizeof(rpack.sserial2));
+        ksstrncpy(rpack.sserial1, mt_ssystem_no, sizeof(rpack.sserial1));
+        ksstrncpy(rpack.sstatus2, mt_sstatus, sizeof(rpack.sstatus2));
+        ksstrncpy(rpack.scust_no, mt_scust_no, sizeof(rpack.scust_no));
+        ksstrncpy(rpack.semail, mt_stable_name, sizeof(rpack.semail));
+        ksstrncpy(rpack.sstatus0, mt_sopertate_type, sizeof(rpack.sstatus0));
+        ksstrncpy(rpack.vsvarstr0, mt_slast_value, sizeof(rpack.vsvarstr0));/* 超长就截断 annotation by lxd 2021-03-08 */
+        ksstrncpy(rpack.semp, mt_sset_emp, sizeof(rpack.semp));
+        ksstrncpy(rpack.sdate0, mt_sset_date, sizeof(rpack.sdate0));
+        ksstrncpy(rpack.stime0, mt_sset_time, sizeof(rpack.stime0));
+
+        bRet = PutRow(handle, &rpack, piRetCode, omsg);
+        if (bRet == FALSE)
+        {
+            ERR_DEAL("PUTROW失败",4405);
+            break;
+        }
+
+        EXEC SQL FETCH C1 INTO
+            :mt_sglobal_serial,:mt_ssystem_no,:mt_sstatus,:mt_scust_no,:mt_stable_name,
+            :mt_sopertate_type,:mt_slast_value,:mt_sset_emp,:mt_sset_date,:mt_sset_time;
+        if(SQLCODE && SQLCODE != NOTFOUND)
+        {
+            ERR_DEAL("从游标中获取HOTS_NOTRADE_TABLE_CHG表数据错误",9888);
+            goto L_RETURN;
+        }
+    }
+L_RETURN:
+    EXEC SQL CLOSE C1;
+    return bRet;
+}

@@ -1,0 +1,62 @@
+/* -------------------------------------------------------------------
+ * 程序名称: p421403.sqc
+ * 创建日期: 2020-12-23
+ * 程序作者: 李向东
+ * 版本信息: <ver>
+ * 程序功能: 非交易委托应答处理
+ * -------------------------------------------------------------------*/
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F421403(LPVOID handle, int iRequest, ST_PACK *reqPack, int *piRetCode, char *omsg)
+{
+    /*变量声明*/
+    EXEC SQL BEGIN DECLARE SECTION;
+        char mi_sglobal_serial[13] = {0};   // 全局流水号
+        char mi_scust_no[11] = {0};         // 客户号
+        char mi_sserial_no[13] = {0};       // 流水号
+        char mi_sbs[3] = {0};               // 业务类别
+        char mi_sentrust_date[9] = {0};     // 委托日期
+        char mi_sstatus[2] = {0};           // 状态
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;       /* 初始化为无错 */
+    char sMsg[256] = {0};
+
+    ksstrncpy(mi_sglobal_serial, reqPack->sserial1, sizeof(mi_sglobal_serial));
+    trim(mi_sglobal_serial);
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    trim(mi_scust_no);
+    ksstrncpy(mi_sserial_no, reqPack->sserial0, sizeof(mi_sserial_no));
+    trim(mi_sserial_no);
+    ksstrncpy(mi_sbs, reqPack->scust_type, sizeof(mi_sbs));
+    trim(mi_sbs);
+    ksstrncpy(mi_sentrust_date, reqPack->sdate0, sizeof(mi_sentrust_date));
+    trim(mi_sentrust_date);
+    ksstrncpy(mi_sstatus, reqPack->sstatus0, sizeof(mi_sstatus));
+    trim(mi_sstatus);
+
+    // 2-处理成功;9-处理失败
+    if (mi_sstatus[0] != '2' && mi_sstatus[0] != '9')
+    {
+        snprintf(sMsg, sizeof(sMsg), "输入参数错误，应答状态为[%s]-未知状态", mi_sstatus);
+        ERR_DEAL(sMsg, 9493);
+        return bRet;
+    }
+
+    // 更新HOTS_OTHER_ENTRUST表中的状态
+    EXEC SQL
+        UPDATE KS.HOTS_OTHER_ENTRUST
+        SET STATUS = :mi_sstatus
+        WHERE GLOBAL_SERIAL = :mi_sglobal_serial;
+    if (SQLCODE)
+    {
+        snprintf(sMsg, sizeof(sMsg), "更新HOTS_OTHER_ENTRUST表出错,全局流水号[%s],客户号[%s],流水号[%s],业务类别[%s],委托日期[%s],状态[%s]", 
+            mi_sglobal_serial, mi_scust_no, mi_sserial_no, mi_sbs, mi_sentrust_date, mi_sstatus);
+        ERR_DEAL(sMsg, 9815);
+        return bRet;
+    }
+
+    return TRUE;
+}

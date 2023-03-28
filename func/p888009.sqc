@@ -1,0 +1,226 @@
+/* ----------------------------------------------------------
+ * 程序名称：p888009.sqc
+ * 创建日期：2020-12-23
+ * 程序作者：李向东
+ * 版本信息：3.22.5.0
+ * 程序功能：HOTS_OTHER_ENTRUST查询
+ * ----------------------------------------------------------
+ * 修改日期: 2022-08-08
+ * 修改人员: 李向东
+ * 修改描述: pack包发送vsmess超过254会导致bcc异常，这里推送vsmess时只拷贝254长度
+ * 备注信息: SECREQ-15421【海通】【融资融券】hotsbu推送vsmess超过254导致bcc发包异常
+ * 版本信息: 3.22.5.0
+ * 专题信息: SECREQ-15421【海通】【融资融券】hotsbu推送vsmess超过254导致bcc发包异常
+ * --------------------------------------------------------------*/
+
+
+#include "inc.h"
+
+EXEC SQL INCLUDE sqlca;
+
+BOOL F888009(LPVOID handle,int iRequest,ST_PACK *reqPack,int *piRetCode,char *omsg)
+{
+    EXEC SQL BEGIN DECLARE SECTION;
+        char    mi_sglobal_serial[13]   = {0};
+        char    mi_scust_no[11]         = {0};
+        char    mi_sbs[3]               = {0};
+        char    mi_ssec_code[9]         = {0};
+        char    mi_sserial_no[13]       = {0};
+        char    mi_ssystem_no[5]        = {0};
+        char    mi_sstatus[2]           = {0};
+
+        char    mt_sglobal_serial[13] = {0};  // 全局流水号
+        char    mt_sbranch_code[4] = {0};  // 营业部
+        char    mt_scust_no[11] = {0};  // 客户号
+        char    mt_scust_type[3] = {0};  // 客户类被
+        char    mt_sroom_no[4] = {0};  // 客户分组
+        char    mt_sstat_type[3] = {0};  // 统计类别
+        char    mt_sbs[3] = {0};  // 业务类别
+        char    mt_sserial_no[13] = {0};  // 流水号
+        char    mt_smarket_code[2] = {0};  // 市场代码
+        char    mt_ssec_code[9] = {0};  // 证券代码
+        char    mt_ssec_short_name[41] = {0};  // 证券简称
+        char    mt_sholder_acc_no[16] = {0};  // 证券账号
+        char    mt_sseat_no[9] = {0};  // 席位号
+        char    mt_sto_seat_no[9] = {0};  // 对方席位号
+        char    mt_sto_holder_acc_no[16] = {0};  // 对账股东账号
+        double    mt_dentrust_vol = 0;  // 委托数量
+        double    mt_dentrust_amt = 0;  // 委托金额
+        double    mt_dentrust_price = 0;  // 委托价格
+        char    mt_sentrust_date[9] = {0};  // 委托日期
+        char    mt_sentrust_time[9] = {0};  // 委托时间
+        char    mt_sentrust_status[2] = {0};  // 委托状态
+        char    mt_smain_seat_no[9] = {0};  // 主席位号
+        char    mt_sentrust_branch[4] = {0};  // 委托发生营业部
+        char    mt_sentrust_method[2] = {0};  // 委托方式
+        char    mt_sentrust_source[21] = {0};  // 委托来源
+        char    mt_srpt_date[9] = {0};  // 申报日期
+        char    mt_srpt_time[9] = {0};  // 申报时间
+        char    mt_sexchange_err_code[7] = {0};  // 交易所错误代码
+        char    mt_sr_date[9] = {0};  // 委托自然日期
+        char    mt_semp_code[7] = {0};  // 职工代码
+        char    mt_sjoin_cust_no[11] = {0};  // 关联客户号
+        sqlint32    mt_iord_recno = 0;  // 委托记录
+        char    mt_snew_entrust_source[81] = {0};  // 新委托来源
+        char    mt_sreport_type[4] = {0};  // 中登申报类型
+        char    mt_sbusi_type[4] = {0};  // 中登业务类别
+        char    mt_ssrpt_contract[11] = {0};  // 申报编号
+        char    mt_sclear_no[9] = {0};  // 清算编号
+        char    mt_sorig_rpt_contract[11] = {0};  // 原申报编号
+        sqlint32    mt_irequest_type = 0;  // 委托交易编码
+        sqlint32    mt_ians_request_type = 0;  // 返回交易编号
+        char    mt_szyb_seat[7] = {0};  // 专业版席位
+        sqlint32    mt_izyb_serial = 0;  // 专业版序号
+        char    mt_ssystem_no[5] = {0};  // 系统编号
+        char    mt_sstatus[2] = {0};  // 推送状态
+        char    mt_serr_msg[256] = {0};  // 错误信息
+    EXEC SQL END DECLARE SECTION;
+
+    BOOL bRet = TRUE;
+    ST_PACK rpack = { 0 };
+    SetCol(handle,
+            F_SSERIAL2, F_SBRANCH_CODE0, F_SCUST_NO, F_SCUST_TYPE, F_SROOM_NO,
+            F_SSTAT_TYPE, F_SCUST_TYPE2, F_SSERIAL0, F_SMARKET_CODE, F_SSTOCK_CODE,
+            F_SBANK_ACC, F_SHOLDER_AC_NO, F_SEMP_PWD, F_SEMP_PWD2, F_SHOLDER_AC_NO2,
+            F_LVOL0, F_DAMT0, F_DAMT1, F_SDATE0, F_STIME0,
+            F_SSTATUS0, F_SBANK_PWD, F_SBRANCH_CODE1, F_SSTATUS1, F_SNAME,
+            F_SDATE1, F_STIME1, F_SOPEN_EMP, F_SDATE2, F_SEMP,
+            F_SCUST_NO2, F_LVOL1, F_SBANKNAME, F_SROOM_NO2, F_SNATION_CODE,
+            F_SORDER0, F_SDATE3, F_SORDER1, F_LVOL2, F_LVOL3,
+            F_SPOST_CODE, F_LVOL4, F_SSERIAL1, F_SSTATUS2, F_VSMESS,
+            0);
+
+    ksstrncpy(mi_sglobal_serial, reqPack->sserial2, sizeof(mi_sglobal_serial));
+    ksstrncpy(mi_scust_no, reqPack->scust_no, sizeof(mi_scust_no));
+    ksstrncpy(mi_sbs, reqPack->scust_type, sizeof(mi_sbs));
+    ksstrncpy(mi_ssec_code, reqPack->sstock_code, sizeof(mi_ssec_code));
+    ksstrncpy(mi_sserial_no, reqPack->sserial1, sizeof(mi_sserial_no));
+    ksstrncpy(mi_ssystem_no, reqPack->sserial0, sizeof(mi_ssystem_no));
+    ksstrncpy(mi_sstatus, reqPack->sstatus0, sizeof(mi_sstatus));
+    trim(mi_sglobal_serial);
+    trim(mi_scust_no);
+    trim(mi_sbs);
+    trim(mi_ssec_code);
+    trim(mi_sserial_no);
+    trim(mi_ssystem_no);
+    trim(mi_sstatus);
+
+
+    EXEC SQL DECLARE C1 CURSOR FOR
+        SELECT
+            GLOBAL_SERIAL, BRANCH_CODE, CUST_NO, CUST_TYPE, ROOM_NO, 
+            STAT_TYPE, BS, SERIAL_NO, MARKET_CODE, SEC_CODE, 
+            SEC_SHORT_NAME, HOLDER_ACC_NO, SEAT_NO, TO_SEAT_NO, TO_HOLDER_ACC_NO, 
+            ENTRUST_VOL, ENTRUST_AMT, ENTRUST_PRICE, ENTRUST_DATE, ENTRUST_TIME, 
+            ENTRUST_STATUS, MAIN_SEAT_NO, ENTRUST_BRANCH, ENTRUST_METHOD, ENTRUST_SOURCE, 
+            RPT_DATE, RPT_TIME, EXCHANGE_ERR_CODE, R_DATE, EMP_CODE, 
+            JOIN_CUST_NO, ORD_RECNO, NEW_ENTRUST_SOURCE, REPORT_TYPE, BUSI_TYPE, 
+            SRPT_CONTRACT, CLEAR_NO, ORIG_RPT_CONTRACT, REQUEST_TYPE, ANS_REQUEST_TYPE, 
+            ZYB_SEAT, ZYB_SERIAL, SYSTEM_NO, STATUS, ERR_MSG
+        FROM KS.HOTS_OTHER_ENTRUST A
+        WHERE (:mi_sglobal_serial = '' OR A.GLOBAL_SERIAL = :mi_sglobal_serial)
+            AND (:mi_scust_no = '' OR A.CUST_NO = :mi_scust_no)
+            AND (:mi_sbs = '' OR A.BS = :mi_sbs)
+            AND (:mi_ssec_code = '' OR A.SEC_CODE = :mi_ssec_code)
+            AND (:mi_sserial_no = '' OR A.SERIAL_NO = :mi_sserial_no)
+            AND (:mi_ssystem_no = '' OR A.SYSTEM_NO = :mi_ssystem_no)
+            AND (:mi_sstatus = '' OR A.STATUS = :mi_sstatus)
+        ORDER BY A.GLOBAL_SERIAL;
+    EXEC SQL OPEN C1;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("打开游标错误",2372);
+        goto L_RETURN;
+    }
+
+    EXEC SQL FETCH C1 INTO
+            :mt_sglobal_serial,:mt_sbranch_code,:mt_scust_no,:mt_scust_type,:mt_sroom_no,
+            :mt_sstat_type,:mt_sbs,:mt_sserial_no,:mt_smarket_code,:mt_ssec_code,
+            :mt_ssec_short_name,:mt_sholder_acc_no,:mt_sseat_no,:mt_sto_seat_no,:mt_sto_holder_acc_no,
+            :mt_dentrust_vol,:mt_dentrust_amt,:mt_dentrust_price,:mt_sentrust_date,:mt_sentrust_time,
+            :mt_sentrust_status,:mt_smain_seat_no,:mt_sentrust_branch,:mt_sentrust_method,:mt_sentrust_source,
+            :mt_srpt_date,:mt_srpt_time,:mt_sexchange_err_code,:mt_sr_date,:mt_semp_code,
+            :mt_sjoin_cust_no,:mt_iord_recno,:mt_snew_entrust_source,:mt_sreport_type,:mt_sbusi_type,
+            :mt_ssrpt_contract,:mt_sclear_no,:mt_sorig_rpt_contract,:mt_irequest_type,:mt_ians_request_type,
+            :mt_szyb_seat,:mt_izyb_serial,:mt_ssystem_no,:mt_sstatus,:mt_serr_msg;
+    if(SQLCODE && SQLCODE != NOTFOUND)
+    {
+        ERR_DEAL("从游标中获取HOTS_OTHER_ENTRUST表数据错误",9816);
+        goto L_RETURN;
+    }
+    while (SQLCODE == 0)
+    {
+        // 将流水数据打包
+        ksstrncpy(rpack.sserial2, mt_sglobal_serial, sizeof(rpack.sserial2));
+        ksstrncpy(rpack.sbranch_code0, mt_sbranch_code, sizeof(rpack.sbranch_code0));
+        ksstrncpy(rpack.scust_no, mt_scust_no, sizeof(rpack.scust_no));
+        ksstrncpy(rpack.scust_type, mt_scust_type, sizeof(rpack.scust_type));
+        ksstrncpy(rpack.sroom_no, mt_sroom_no, sizeof(rpack.sroom_no));
+        ksstrncpy(rpack.sstat_type, mt_sstat_type, sizeof(rpack.sstat_type));
+        ksstrncpy(rpack.scust_type2, mt_sbs, sizeof(rpack.scust_type2));
+        ksstrncpy(rpack.sserial0, mt_sserial_no, sizeof(rpack.sserial0));
+        ksstrncpy(rpack.smarket_code, mt_smarket_code, sizeof(rpack.smarket_code));
+        ksstrncpy(rpack.sstock_code, mt_ssec_code, sizeof(rpack.sstock_code));
+        ksstrncpy(rpack.sbank_acc, mt_ssec_short_name, sizeof(rpack.sbank_acc));
+        ksstrncpy(rpack.sholder_ac_no, mt_sholder_acc_no, sizeof(rpack.sholder_ac_no));
+        ksstrncpy(rpack.semp_pwd, mt_sseat_no, sizeof(rpack.semp_pwd));
+        ksstrncpy(rpack.semp_pwd2, mt_sto_seat_no, sizeof(rpack.semp_pwd2));
+        ksstrncpy(rpack.sholder_ac_no2, mt_sto_holder_acc_no, sizeof(rpack.sholder_ac_no2));
+        rpack.lvol0 = mt_dentrust_vol;
+        rpack.damt0 = mt_dentrust_amt;
+        rpack.damt1 = mt_dentrust_price;
+        ksstrncpy(rpack.sdate0, mt_sentrust_date, sizeof(rpack.sdate0));
+        ksstrncpy(rpack.stime0, mt_sentrust_time, sizeof(rpack.stime0));
+        ksstrncpy(rpack.sstatus0, mt_sentrust_status, sizeof(rpack.sstatus0));
+        ksstrncpy(rpack.sbank_pwd, mt_smain_seat_no, sizeof(rpack.sbank_pwd));
+        ksstrncpy(rpack.sbranch_code1, mt_sentrust_branch, sizeof(rpack.sbranch_code1));
+        ksstrncpy(rpack.sstatus1, mt_sentrust_method, sizeof(rpack.sstatus1));
+        ksstrncpy(rpack.sname, mt_sentrust_source, sizeof(rpack.sname));
+        ksstrncpy(rpack.sdate1, mt_srpt_date, sizeof(rpack.sdate1));
+        ksstrncpy(rpack.stime1, mt_srpt_time, sizeof(rpack.stime1));
+        ksstrncpy(rpack.sopen_emp, mt_sexchange_err_code, sizeof(rpack.sopen_emp));
+        ksstrncpy(rpack.sdate2, mt_sr_date, sizeof(rpack.sdate2));
+        ksstrncpy(rpack.semp, mt_semp_code, sizeof(rpack.semp));
+        ksstrncpy(rpack.scust_no2, mt_sjoin_cust_no, sizeof(rpack.scust_no2));
+        rpack.lvol1 = mt_iord_recno;
+        ksstrncpy(rpack.sbankname, mt_snew_entrust_source, sizeof(rpack.sbankname));
+        ksstrncpy(rpack.sroom_no2, mt_sreport_type, sizeof(rpack.sroom_no2));
+        ksstrncpy(rpack.snation_code, mt_sbusi_type, sizeof(rpack.snation_code));
+        ksstrncpy(rpack.sorder0, mt_ssrpt_contract, sizeof(rpack.sorder0));
+        ksstrncpy(rpack.sdate3, mt_sclear_no, sizeof(rpack.sdate3));
+        ksstrncpy(rpack.sorder1, mt_sorig_rpt_contract, sizeof(rpack.sorder1));
+        rpack.lvol2 = mt_irequest_type;
+        rpack.lvol3 = mt_ians_request_type;
+        ksstrncpy(rpack.spost_code, mt_szyb_seat, sizeof(rpack.spost_code));
+        rpack.lvol4 = mt_izyb_serial;
+        ksstrncpy(rpack.sserial1, mt_ssystem_no, sizeof(rpack.sserial1));
+        ksstrncpy(rpack.sstatus2, mt_sstatus, sizeof(rpack.sstatus2));
+        ksstrncpy(rpack.vsmess, mt_serr_msg, sizeof(rpack.vsmess)-1); /* 有效字符拷贝254字节 modify by xiangdong.li 2022-08-08 */
+
+        bRet = PutRow(handle, &rpack, piRetCode, omsg);
+        if (bRet == FALSE)
+        {
+            ERR_DEAL("PUTROW失败",4405);
+            break;
+        }
+
+        EXEC SQL FETCH C1 INTO
+            :mt_sglobal_serial,:mt_sbranch_code,:mt_scust_no,:mt_scust_type,:mt_sroom_no,
+            :mt_sstat_type,:mt_sbs,:mt_sserial_no,:mt_smarket_code,:mt_ssec_code,
+            :mt_ssec_short_name,:mt_sholder_acc_no,:mt_sseat_no,:mt_sto_seat_no,:mt_sto_holder_acc_no,
+            :mt_dentrust_vol,:mt_dentrust_amt,:mt_dentrust_price,:mt_sentrust_date,:mt_sentrust_time,
+            :mt_sentrust_status,:mt_smain_seat_no,:mt_sentrust_branch,:mt_sentrust_method,:mt_sentrust_source,
+            :mt_srpt_date,:mt_srpt_time,:mt_sexchange_err_code,:mt_sr_date,:mt_semp_code,
+            :mt_sjoin_cust_no,:mt_iord_recno,:mt_snew_entrust_source,:mt_sreport_type,:mt_sbusi_type,
+            :mt_ssrpt_contract,:mt_sclear_no,:mt_sorig_rpt_contract,:mt_irequest_type,:mt_ians_request_type,
+            :mt_szyb_seat,:mt_izyb_serial,:mt_ssystem_no,:mt_sstatus,:mt_serr_msg;
+        if(SQLCODE && SQLCODE != NOTFOUND)
+        {
+            ERR_DEAL("从游标中获取HOTS_OTHER_ENTRUST表数据错误",9816);
+            goto L_RETURN;
+        }
+    }
+L_RETURN:
+    EXEC SQL CLOSE C1;
+    return bRet;
+}
